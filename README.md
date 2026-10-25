@@ -6,23 +6,25 @@ more). It runs on your machine. There is no remote application backend.
 
 ## Status
 
-**Phase 2 (execution API and UI).** What exists today:
+**Phase 3 (approvals and failure handling).** What exists today:
 
 - A pnpm monorepo with strict TypeScript, ESLint, Prettier and Vitest.
 - `packages/workflow-core`: the workflow contract (`defineWorkflow`), registry, execution
-  lifecycle, the in-process worker (`ExecutionEngine`) with cooperative cancellation, SQLite
-  persistence with migrations, event history and conservative restart recovery.
-- `packages/workflow-demo`: the `demo-sequence` workflow (no AI, no side effects).
+  lifecycle, the in-process worker (`ExecutionEngine`) with cooperative cancellation, human
+  approval states, bounded retries, step timeouts, SQLite persistence with migrations, event
+  history, conservative restart recovery and manual resume.
+- `packages/workflow-demo`: the `demo-sequence` workflow (no AI, no side effects), with an
+  optional review step and simulated failures to try approvals and retries.
 - `apps/backend`: a Fastify API bound to `127.0.0.1`, protected by a per-run bearer token,
-  Host and Origin checks. It provides the workflow catalog, start, history, detail, events and
-  cancel.
+  Host and Origin checks. It provides the workflow catalog, start, history, detail, events,
+  cancel, approval decisions and resume.
 - `apps/desktop`: a Next.js (static export) UI with these screens: dashboard, workflow catalog,
   a start form generated from each workflow's input schema, execution history with filters,
-  and a live execution monitor. It also holds the Tauri 2 shell configuration.
+  a live execution monitor with approve/reject and resume, and an Approvals page. It also
+  holds the Tauri 2 shell configuration.
 - `packages/shared`: Zod schemas for the API contracts both apps use.
 
-**Not built yet:** approvals, retries and timeouts, the Claude Code adapter and the Generate
-Spec workflow. The Tauri shell has **not been compiled yet**, because the development machine
+**Not built yet:** the Claude Code adapter and the Generate Spec workflow. The Tauri shell has **not been compiled yet**, because the development machine
 has no Rust toolchain (see Prerequisites); the packaged app does not start the backend yet
 either.
 
@@ -45,6 +47,10 @@ pnpm install
 pnpm dev            # backend on http://127.0.0.1:41731, UI on http://localhost:3000
 pnpm dev:desktop    # the same, inside the Tauri window (needs Rust)
 ```
+
+In VS Code, the Run and Debug panel has ready-made configurations (`.vscode/launch.json`):
+**Demo: full stack** (backend and UI with the debugger attached), **Demo: open UI in Edge**,
+the compound **Demo: full stack + Edge**, and **Tests: debug current test file**.
 
 ## Commands
 
@@ -113,6 +119,7 @@ After changing `packages/workflow-core/src/persistence/schema.ts`, generate a mi
 - [ADR 0003: Local backend network boundary](docs/adr/0003-local-backend-network-boundary.md)
 - [ADR 0004: Workflow engine and persistence](docs/adr/0004-workflow-engine-and-persistence.md)
 - [ADR 0005: Execution API, local auth and cancellation](docs/adr/0005-execution-api-and-local-auth.md)
+- [ADR 0006: Approvals, retries, timeouts and recovery](docs/adr/0006-approvals-retries-and-recovery.md)
 
 ## Troubleshooting
 
