@@ -17,6 +17,8 @@ export const ENGINE_ERROR_CODES = {
   workflowUnavailable: 'WORKFLOW_UNAVAILABLE',
   /** The app stopped while a step was running; the step was not re-run. */
   interrupted: 'INTERRUPTED',
+  /** The user cancelled while the step was running. */
+  cancelled: 'CANCELLED',
 } as const;
 
 export class WorkflowEngineError extends Error {
@@ -117,4 +119,16 @@ export class PayloadTooLargeError extends Error {
 /** Data read back from the database is not what was written (corrupt or edited by hand). */
 export class CorruptRecordError extends Error {
   override readonly name = 'CorruptRecordError';
+}
+
+/** The request is valid but the execution's current state does not allow it. */
+export class ExecutionConflictError extends Error {
+  override readonly name = 'ExecutionConflictError';
+
+  constructor(
+    readonly executionId: string,
+    message: string,
+  ) {
+    super(message);
+  }
 }

@@ -65,6 +65,7 @@ export function createSequenceWorkflow(
     version,
     name: 'Test sequence',
     description: 'Two steps, then done. Used by the engine tests.',
+    category: 'Test',
     machine: sequenceMachine,
     inputSchema: sequenceInputSchema,
     contextSchema,

@@ -187,3 +187,83 @@ describe('SqliteExecutionStore', () => {
     expect(failed.error?.message).toHaveLength(10);
   });
 });
+
+describe('SqliteExecutionStore queries', () => {
+  function seed() {
+    const ids = ['a', 'b', 'c', 'd'];
+    for (const [index, id] of ids.entries()) {
+      now = T0 + index * 1000;
+      store.createExecution({
+        id,
+        workflowId: index % 2 === 0 ? 'even' : 'odd',
+        workflowVersion: '1.0.0',
+        currentState: 'FIRST',
+        input: {},
+        context: {},
+      });
+    }
+    now = T0 + 10_000;
+    store.applyChange({ executionId: 'a', expectedRevision: 0, execution: { status: 'RUNNING' } });
+    now = T0 + 11_000;
+    store.applyChange({
+      executionId: 'a',
+      expectedRevision: 1,
+      execution: { status: 'COMPLETED' },
+    });
+    now = T0 + 12_000;
+    store.applyChange({
+      executionId: 'c',
+      expectedRevision: 0,
+      execution: { status: 'CANCELLED' },
+    });
+  }
+
+  it('lists summaries newest first, with filters and paging', () => {
+    seed();
+
+    expect(store.listExecutionSummaries({ limit: 10, offset: 0 }).map((e) => e.id)).toEqual([
+      'd',
+      'c',
+      'b',
+      'a',
+    ]);
+    expect(
+      store.listExecutionSummaries({ workflowId: 'even', limit: 10, offset: 0 }).map((e) => e.id),
+    ).toEqual(['c', 'a']);
+    expect(
+      store.listExecutionSummaries({ status: 'PENDING', limit: 1, offset: 1 }).map((e) => e.id),
+    ).toEqual(['b']);
+    expect(store.countExecutions({ status: 'PENDING' })).toBe(2);
+    expect(store.listExecutionSummaries({ limit: 1, offset: 0 })[0]).not.toHaveProperty('context');
+  });
+
+  it('counts every status, including zero', () => {
+    seed();
+
+    expect(store.countByStatus()).toEqual({
+      PENDING: 2,
+      RUNNING: 0,
+      WAITING_FOR_APPROVAL: 0,
+      INTERRUPTED: 0,
+      FAILED: 0,
+      CANCELLED: 1,
+      COMPLETED: 1,
+    });
+  });
+
+  it('lists recently finished executions by completion time', () => {
+    seed();
+
+    expect(store.listRecentlyFinished(5).map((e) => e.id)).toEqual(['c', 'a']);
+  });
+
+  it('returns events after a given id, for polling', () => {
+    seed();
+    const all = store.listEvents('a');
+
+    expect(store.listEvents('a', { afterId: all[0]?.id ?? 0 }).map((e) => e.id)).toEqual(
+      all.slice(1).map((e) => e.id),
+    );
+    expect(store.listEvents('a', { limit: 1 })).toHaveLength(1);
+  });
+});

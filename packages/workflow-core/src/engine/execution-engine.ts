@@ -1,9 +1,20 @@
 import { randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
-import { ENGINE_ERROR_CODES, WorkflowEngineError } from '../contracts/errors.js';
+import {
+  ENGINE_ERROR_CODES,
+  ExecutionConflictError,
+  ExecutionNotFoundError,
+  WorkflowEngineError,
+} from '../contracts/errors.js';
 import { silentLogger, type Logger } from '../contracts/logger.js';
 import type { StepOutcome, Workflow } from '../contracts/workflow.js';
-import type { ErrorInfo, ExecutionRecord, ExecutionStore } from '../persistence/execution-store.js';
+import { isTerminalStatus } from '../execution/status.js';
+import type {
+  ErrorInfo,
+  ExecutionRecord,
+  ExecutionStore,
+  NewExecutionEvent,
+} from '../persistence/execution-store.js';
 import { planRecovery } from '../recovery/plan-recovery.js';
 import type { WorkflowRegistry } from '../registry/workflow-registry.js';
 
@@ -28,6 +39,16 @@ export interface RecoveryReport {
   interrupted: string[];
 }
 
+export interface CancelResult {
+  /**
+   * `cancelled`: the execution is CANCELLED now.
+   * `requested`: a step is running; it was asked to stop, and the execution becomes CANCELLED
+   * when it does.
+   */
+  outcome: 'cancelled' | 'requested';
+  execution: ExecutionRecord;
+}
+
 /** The abort reason given to steps when the engine stops. */
 export class EngineShutdownError extends Error {
   override readonly name = 'EngineShutdownError';
@@ -37,10 +58,24 @@ export class EngineShutdownError extends Error {
   }
 }
 
+/** The abort reason given to a step when the user cancels its execution. */
+export class ExecutionCancelledError extends Error {
+  override readonly name = 'ExecutionCancelledError';
+
+  constructor() {
+    super('The execution was cancelled.');
+  }
+}
+
 interface ActiveExecution {
   controller: AbortController;
   done: Promise<void>;
 }
+
+const CANCELLED_WHILE_RUNNING: ErrorInfo = {
+  code: ENGINE_ERROR_CODES.cancelled,
+  message: 'Cancelled while this step was running.',
+};
 
 function errorInfo(error: unknown): ErrorInfo {
   if (error instanceof WorkflowEngineError) return { code: error.code, message: error.message };
@@ -51,8 +86,11 @@ function errorInfo(error: unknown): ErrorInfo {
 
 /**
  * Runs executions inside this process: one step at a time per execution, persisting every
- * step start and every transition before moving on. HTTP handlers call `start` and return;
- * the work happens here, outside the request.
+ * step start and every transition before moving on. HTTP handlers call `start` or `cancel`
+ * and return; the work happens here, outside the request.
+ *
+ * While a step runs, only that execution's run loop writes to it. Requests that arrive
+ * meanwhile (cancel) set a flag and abort the step's signal; the loop records the outcome.
  */
 export class ExecutionEngine {
   readonly #registry: WorkflowRegistry;
@@ -63,6 +101,7 @@ export class ExecutionEngine {
 
   readonly #queue: string[] = [];
   readonly #active = new Map<string, ActiveExecution>();
+  readonly #cancelRequested = new Set<string>();
   readonly #idleWaiters: (() => void)[] = [];
   #stopping = false;
 
@@ -98,6 +137,48 @@ export class ExecutionEngine {
     );
     this.#schedule(execution.id);
     return execution;
+  }
+
+  /**
+   * Cancels cooperatively. No new step starts; a running step gets its signal aborted and the
+   * execution becomes CANCELLED once the step settles. History is kept.
+   * Throws ExecutionNotFoundError, or ExecutionConflictError for a finished execution.
+   */
+  cancel(executionId: string): CancelResult {
+    const execution = this.#store.getExecution(executionId);
+    if (execution === undefined) throw new ExecutionNotFoundError(executionId);
+    if (isTerminalStatus(execution.status)) {
+      throw new ExecutionConflictError(
+        executionId,
+        `The execution is already ${execution.status} and cannot be cancelled.`,
+      );
+    }
+
+    const active = this.#active.get(executionId);
+    if (active !== undefined) {
+      if (!this.#cancelRequested.has(executionId)) {
+        this.#cancelRequested.add(executionId);
+        active.controller.abort(new ExecutionCancelledError());
+        this.#log.info({ executionId, eventType: 'CANCEL_REQUESTED' }, 'Cancel requested');
+      }
+      return { outcome: 'requested', execution };
+    }
+
+    // Nothing runs for it in this process, so it can be cancelled right away.
+    const queued = this.#queue.indexOf(executionId);
+    if (queued >= 0) this.#queue.splice(queued, 1);
+    const cancelled = this.#store.applyChange({
+      executionId,
+      expectedRevision: execution.revision,
+      execution: { status: 'CANCELLED' },
+      events: [{ type: 'CANCEL_REQUESTED', stateBefore: execution.currentState }],
+    });
+    this.#log.info({ executionId, eventType: 'CANCEL_REQUESTED' }, 'Execution cancelled');
+    return { outcome: 'cancelled', execution: cancelled };
+  }
+
+  isCancelRequested(executionId: string): boolean {
+    return this.#cancelRequested.has(executionId);
   }
 
   /** Call once at startup, before accepting work. See planRecovery for the rules. */
@@ -192,6 +273,7 @@ export class ExecutionEngine {
         })
         .finally(() => {
           this.#active.delete(executionId);
+          this.#cancelRequested.delete(executionId);
           this.#pump();
           if (this.#isIdle()) for (const resolve of this.#idleWaiters.splice(0)) resolve();
         });
@@ -220,6 +302,16 @@ export class ExecutionEngine {
       const execution = this.#store.getExecution(executionId);
       if (execution === undefined) return;
       if (execution.status !== 'PENDING' && execution.status !== 'RUNNING') return;
+
+      if (this.#cancelRequested.has(executionId)) {
+        this.#store.applyChange({
+          executionId,
+          expectedRevision: execution.revision,
+          execution: { status: 'CANCELLED' },
+          events: [{ type: 'CANCEL_REQUESTED', stateBefore: execution.currentState }],
+        });
+        return;
+      }
 
       const workflow = this.#registry.get(execution.workflowId);
       if (workflow?.version !== execution.workflowVersion) {
@@ -270,6 +362,7 @@ export class ExecutionEngine {
     log.info({ eventType: 'STEP_STARTED' }, 'Step started');
     const startTime = performance.now();
     const elapsed = () => Math.round(performance.now() - startTime);
+    const cancelEvent: NewExecutionEvent = { type: 'CANCEL_REQUESTED', stateBefore: stepId };
 
     let outcome: StepOutcome;
     try {
@@ -282,41 +375,53 @@ export class ExecutionEngine {
         log,
       });
     } catch (error) {
-      const aborted = signal.aborted;
-      const info: ErrorInfo = aborted
-        ? {
-            code: ENGINE_ERROR_CODES.interrupted,
-            message: `The app stopped while step "${stepId}" was running. It was not re-run, because it may already have had side effects.`,
-          }
-        : errorInfo(error);
+      const cancelled = this.#cancelRequested.has(execution.id);
+      const interrupted = !cancelled && signal.aborted;
+      const info: ErrorInfo = cancelled
+        ? CANCELLED_WHILE_RUNNING
+        : interrupted
+          ? {
+              code: ENGINE_ERROR_CODES.interrupted,
+              message: `The app stopped while step "${stepId}" was running. It was not re-run, because it may already have had side effects.`,
+            }
+          : errorInfo(error);
+      const stepEvent: NewExecutionEvent = {
+        type: cancelled || interrupted ? 'STEP_INTERRUPTED' : 'STEP_FAILED',
+        stateBefore: stepId,
+        payload: { stepRunId, stepId, attempt, errorCode: info.code },
+      };
 
       this.#store.applyChange({
         executionId: execution.id,
         expectedRevision: started.revision,
-        execution: { status: aborted ? 'INTERRUPTED' : 'FAILED', error: info },
-        finishStepRun: { id: stepRunId, status: aborted ? 'INTERRUPTED' : 'FAILED', error: info },
-        events: [
-          {
-            type: aborted ? 'STEP_INTERRUPTED' : 'STEP_FAILED',
-            stateBefore: stepId,
-            payload: { stepRunId, stepId, attempt, errorCode: info.code },
-          },
-        ],
-      });
-      log[aborted ? 'warn' : 'error'](
-        {
-          eventType: aborted ? 'STEP_INTERRUPTED' : 'STEP_FAILED',
-          durationMs: elapsed(),
-          result: aborted ? 'interrupted' : 'failed',
-          errorCode: info.code,
-          err: error,
+        execution: cancelled
+          ? { status: 'CANCELLED' }
+          : { status: interrupted ? 'INTERRUPTED' : 'FAILED', error: info },
+        finishStepRun: {
+          id: stepRunId,
+          status: cancelled || interrupted ? 'INTERRUPTED' : 'FAILED',
+          error: info,
         },
-        aborted ? 'Step interrupted' : 'Step failed',
+        events: cancelled ? [cancelEvent, stepEvent] : [stepEvent],
+      });
+      const result = cancelled ? 'cancelled' : interrupted ? 'interrupted' : 'failed';
+      log[result === 'failed' ? 'error' : 'warn'](
+        {
+          eventType: stepEvent.type,
+          durationMs: elapsed(),
+          result,
+          errorCode: info.code,
+          ...(result === 'failed' ? { err: error } : {}),
+        },
+        `Step ${result}`,
       );
       return true;
     }
 
+    // The step finished. If a cancel arrived meanwhile, keep its result and stop here,
+    // unless it already reached a final state.
     const final = outcome.final;
+    const cancelled = final === null && this.#cancelRequested.has(execution.id);
     this.#store.applyChange({
       executionId: execution.id,
       expectedRevision: started.revision,
@@ -324,6 +429,7 @@ export class ExecutionEngine {
         currentState: outcome.stateAfter,
         context: outcome.context,
         ...(final === null ? {} : { status: final.status, output: final.output }),
+        ...(cancelled ? { status: 'CANCELLED' } : {}),
       },
       finishStepRun: { id: stepRunId, status: 'SUCCEEDED', output: outcome.event },
       events: [
@@ -338,6 +444,7 @@ export class ExecutionEngine {
           stateAfter: outcome.stateAfter,
           payload: { event: outcome.eventType },
         },
+        ...(cancelled ? [{ ...cancelEvent, stateBefore: outcome.stateAfter }] : []),
       ],
     });
     log.info(
@@ -347,9 +454,10 @@ export class ExecutionEngine {
         result: 'succeeded',
         nextState: outcome.stateAfter,
         ...(final === null ? {} : { executionStatus: final.status }),
+        ...(cancelled ? { executionStatus: 'CANCELLED' } : {}),
       },
       'Step succeeded',
     );
-    return final !== null;
+    return final !== null || cancelled;
   }
 }

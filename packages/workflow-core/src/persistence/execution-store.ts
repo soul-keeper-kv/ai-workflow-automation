@@ -103,5 +103,23 @@ export interface ExecutionStore {
   getRunningStepRun(executionId: string): StepRunRecord | undefined;
   countStepRuns(executionId: string, stepId: string): number;
   listStepRuns(executionId: string): StepRunRecord[];
-  listEvents(executionId: string): ExecutionEventRecord[];
+  listEvents(
+    executionId: string,
+    options?: { afterId?: number; limit?: number },
+  ): ExecutionEventRecord[];
+  /** Newest first, without the JSON columns. */
+  listExecutionSummaries(
+    filter: ExecutionFilter & { limit: number; offset: number },
+  ): ExecutionSummaryRecord[];
+  countExecutions(filter: ExecutionFilter): number;
+  countByStatus(): Record<ExecutionStatus, number>;
+  /** Terminal executions, most recently completed first. */
+  listRecentlyFinished(limit: number): ExecutionSummaryRecord[];
 }
+
+export interface ExecutionFilter {
+  workflowId?: string | undefined;
+  status?: ExecutionStatus | undefined;
+}
+
+export type ExecutionSummaryRecord = Omit<ExecutionRecord, 'input' | 'context' | 'output'>;

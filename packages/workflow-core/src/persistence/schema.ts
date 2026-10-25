@@ -85,7 +85,8 @@ export const workflowEvents = sqliteTable(
   },
   (t) => [
     index('workflow_events_execution_idx').on(t.executionId, t.id),
-    check('workflow_events_type_check', sql`${t.eventType} in (${inList(EXECUTION_EVENT_TYPES)})`),
+    // No CHECK on event_type: the list grows, and SQLite can only change a CHECK by rebuilding
+    // the table. The store validates event types when it reads them.
   ],
 );
 

@@ -4,9 +4,15 @@ import { assign, setup } from 'xstate';
 import { z } from 'zod';
 
 const inputSchema = z.object({
-  items: z.array(z.string().trim().min(1).max(80)).min(1).max(20),
-  /** Pause per step and per processed item, so progress is visible in the UI. */
-  stepDelayMs: z.number().int().min(0).max(10_000).default(500),
+  items: z
+    .array(z.string().trim().min(1).max(80))
+    .min(1)
+    .max(20)
+    .meta({ title: 'Items', description: 'Between 1 and 20 short texts. Duplicates are dropped.' }),
+  stepDelayMs: z.number().int().min(0).max(10_000).default(500).meta({
+    title: 'Delay per step (ms)',
+    description: 'Pause per step and per item, so progress is visible.',
+  }),
 });
 
 const contextSchema = z.object({
@@ -78,6 +84,7 @@ export const demoSequenceWorkflow = defineWorkflow({
   name: 'Demo sequence',
   description:
     'Walks a short list of items through three steps. Uses no AI and touches no files: use it to try the platform.',
+  category: 'Demo',
   machine,
   inputSchema,
   contextSchema,

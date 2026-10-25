@@ -1,5 +1,10 @@
-import type { ExecutionStatus } from '@aap/shared';
-import { and, asc, count, eq, inArray, sql } from 'drizzle-orm';
+import {
+  EXECUTION_STATUSES,
+  TERMINAL_EXECUTION_STATUSES,
+  executionEventTypeSchema,
+  type ExecutionStatus,
+} from '@aap/shared';
+import { and, asc, count, desc, eq, gt, inArray, sql } from 'drizzle-orm';
 import {
   ConcurrentModificationError,
   CorruptRecordError,
@@ -13,12 +18,29 @@ import type {
   ErrorInfo,
   ExecutionChange,
   ExecutionEventRecord,
+  ExecutionFilter,
   ExecutionRecord,
   ExecutionStore,
+  ExecutionSummaryRecord,
   NewExecution,
   StepRunRecord,
 } from './execution-store.js';
 import { workflowEvents, workflowExecutions, workflowStepExecutions } from './schema.js';
+
+const SUMMARY_COLUMNS = {
+  id: workflowExecutions.id,
+  workflowId: workflowExecutions.workflowId,
+  workflowVersion: workflowExecutions.workflowVersion,
+  status: workflowExecutions.status,
+  currentState: workflowExecutions.currentState,
+  errorCode: workflowExecutions.errorCode,
+  errorMessage: workflowExecutions.errorMessage,
+  revision: workflowExecutions.revision,
+  createdAt: workflowExecutions.createdAt,
+  startedAt: workflowExecutions.startedAt,
+  updatedAt: workflowExecutions.updatedAt,
+  completedAt: workflowExecutions.completedAt,
+};
 
 export interface StorageLimits {
   /** Input, context, output and step results. Large artifacts belong in files, not here. */
@@ -37,6 +59,7 @@ type ExecutionRow = typeof workflowExecutions.$inferSelect;
 type StepRunRow = typeof workflowStepExecutions.$inferSelect;
 type EventRow = typeof workflowEvents.$inferSelect;
 type EventInsert = typeof workflowEvents.$inferInsert;
+type SummaryRow = Pick<ExecutionRow, keyof typeof SUMMARY_COLUMNS>;
 
 export interface SqliteExecutionStoreOptions {
   clock?: () => Date;
@@ -293,14 +316,95 @@ export class SqliteExecutionStore implements ExecutionStore {
       .map((row) => this.#toStepRun(row));
   }
 
-  listEvents(executionId: string): ExecutionEventRecord[] {
-    return this.#db
+  listEvents(
+    executionId: string,
+    options: { afterId?: number; limit?: number } = {},
+  ): ExecutionEventRecord[] {
+    const query = this.#db
       .select()
       .from(workflowEvents)
-      .where(eq(workflowEvents.executionId, executionId))
-      .orderBy(asc(workflowEvents.id))
+      .where(
+        and(
+          eq(workflowEvents.executionId, executionId),
+          gt(workflowEvents.id, options.afterId ?? 0),
+        ),
+      )
+      .orderBy(asc(workflowEvents.id));
+    const rows = options.limit === undefined ? query.all() : query.limit(options.limit).all();
+    return rows.map((row) => this.#toEvent(row));
+  }
+
+  listExecutionSummaries(
+    filter: ExecutionFilter & { limit: number; offset: number },
+  ): ExecutionSummaryRecord[] {
+    return this.#db
+      .select(SUMMARY_COLUMNS)
+      .from(workflowExecutions)
+      .where(this.#filter(filter))
+      .orderBy(desc(workflowExecutions.createdAt), sql`rowid desc`)
+      .limit(filter.limit)
+      .offset(filter.offset)
       .all()
-      .map((row) => this.#toEvent(row));
+      .map((row) => this.#toSummary(row));
+  }
+
+  countExecutions(filter: ExecutionFilter): number {
+    const row = this.#db
+      .select({ n: count() })
+      .from(workflowExecutions)
+      .where(this.#filter(filter))
+      .get();
+    return row?.n ?? 0;
+  }
+
+  countByStatus(): Record<ExecutionStatus, number> {
+    const counts = Object.fromEntries(EXECUTION_STATUSES.map((status) => [status, 0])) as Record<
+      ExecutionStatus,
+      number
+    >;
+    const rows = this.#db
+      .select({ status: workflowExecutions.status, n: count() })
+      .from(workflowExecutions)
+      .groupBy(workflowExecutions.status)
+      .all();
+    for (const row of rows) counts[row.status] = row.n;
+    return counts;
+  }
+
+  listRecentlyFinished(limit: number): ExecutionSummaryRecord[] {
+    return this.#db
+      .select(SUMMARY_COLUMNS)
+      .from(workflowExecutions)
+      .where(inArray(workflowExecutions.status, [...TERMINAL_EXECUTION_STATUSES]))
+      .orderBy(desc(workflowExecutions.completedAt), sql`rowid desc`)
+      .limit(limit)
+      .all()
+      .map((row) => this.#toSummary(row));
+  }
+
+  #filter(filter: ExecutionFilter) {
+    return and(
+      filter.workflowId === undefined
+        ? undefined
+        : eq(workflowExecutions.workflowId, filter.workflowId),
+      filter.status === undefined ? undefined : eq(workflowExecutions.status, filter.status),
+    );
+  }
+
+  #toSummary(row: SummaryRow): ExecutionSummaryRecord {
+    return {
+      id: row.id,
+      workflowId: row.workflowId,
+      workflowVersion: row.workflowVersion,
+      status: row.status,
+      currentState: row.currentState,
+      error: this.#error(row.errorCode, row.errorMessage),
+      revision: row.revision,
+      createdAt: row.createdAt,
+      startedAt: row.startedAt,
+      updatedAt: row.updatedAt,
+      completedAt: row.completedAt,
+    };
   }
 
   #serialize(value: JsonValue, field: string, limit: number): string {
@@ -363,10 +467,14 @@ export class SqliteExecutionStore implements ExecutionStore {
   }
 
   #toEvent(row: EventRow): ExecutionEventRecord {
+    const type = executionEventTypeSchema.safeParse(row.eventType);
+    if (!type.success) {
+      throw new CorruptRecordError(`Event ${row.id} has unknown type "${row.eventType}".`);
+    }
     return {
       id: row.id,
       executionId: row.executionId,
-      type: row.eventType,
+      type: type.data,
       stateBefore: row.stateBefore,
       stateAfter: row.stateAfter,
       payload: this.#parse(row.payloadJson, 'payload', `event ${row.id}`),

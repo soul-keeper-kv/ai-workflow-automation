@@ -270,7 +270,13 @@ describe('Workflow.runStep', () => {
   });
 });
 
-const base = { id: 'probe', version: '1.0.0', name: 'Probe', description: 'Probe workflow.' };
+const base = {
+  id: 'probe',
+  version: '1.0.0',
+  name: 'Probe',
+  description: 'Probe workflow.',
+  category: 'Test',
+};
 
 function specFor(machine: typeof sequenceMachine) {
   return {

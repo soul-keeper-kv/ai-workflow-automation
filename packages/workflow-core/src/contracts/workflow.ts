@@ -70,7 +70,10 @@ export interface WorkflowSpec<TMachine extends AnyStateMachine> {
   version: string;
   name: string;
   description: string;
+  /** Free text used to group the catalog, e.g. "Documentation". */
+  category: string;
   machine: TMachine;
+  /** Also published as JSON Schema, so the UI can render a form for any workflow. */
   inputSchema: z.ZodType<InputFrom<TMachine>>;
   /** Validates the context every time it is persisted and every time it is read back. */
   contextSchema: z.ZodType<ContextFrom<TMachine>>;
@@ -122,6 +125,9 @@ export interface Workflow {
   readonly version: string;
   readonly name: string;
   readonly description: string;
+  readonly category: string;
+  /** JSON Schema (draft 2020-12) of the input, as a client sends it: defaults are optional. */
+  readonly inputJsonSchema: JsonObject;
   readonly initialState: string;
   readonly states: readonly StateInfo[];
   getState(name: string): StateInfo | undefined;
@@ -154,6 +160,7 @@ function describeStates<TMachine extends AnyStateMachine>(
   if (!SEMVER_PATTERN.test(spec.version)) throw problem(`version "${spec.version}" must be x.y.z.`);
   if (spec.name.trim() === '') throw problem('name is empty.');
   if (spec.description.trim() === '') throw problem('description is empty.');
+  if (spec.category.trim() === '') throw problem('category is empty.');
 
   const root = spec.machine.root;
   if (root.type !== 'compound') throw problem('the machine must have top-level states.');
@@ -205,6 +212,12 @@ export function defineWorkflow<TMachine extends AnyStateMachine>(
   spec: WorkflowSpec<TMachine>,
 ): Workflow {
   const { states, initialState } = describeStates(spec);
+  // `unrepresentable: 'any'` keeps definition working for types JSON Schema cannot express;
+  // the server validates with the Zod schema either way.
+  const inputJsonSchema = z.toJSONSchema(spec.inputSchema, {
+    io: 'input',
+    unrepresentable: 'any',
+  }) as JsonObject;
   const byName = new Map(states.map((state) => [state.name, state]));
   // From here on the machine is handled through its erased type. Everything coming out of it
   // is validated with the workflow's own schemas before it is used or stored.
@@ -235,6 +248,8 @@ export function defineWorkflow<TMachine extends AnyStateMachine>(
     version: spec.version,
     name: spec.name,
     description: spec.description,
+    category: spec.category,
+    inputJsonSchema,
     initialState,
     states,
     getState: (name) => byName.get(name),

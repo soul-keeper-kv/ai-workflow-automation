@@ -1,6 +1,8 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  ExecutionConflictError,
+  ExecutionNotFoundError,
   InputValidationError,
   StepError,
   WorkflowNotFoundError,
@@ -300,5 +302,118 @@ describe('restart and recovery', () => {
       currentState: 'SECOND',
       error: { code: 'WORKFLOW_UNAVAILABLE' },
     });
+  });
+});
+
+describe('ExecutionEngine.cancel', () => {
+  const abortable =
+    (onStart?: () => void) =>
+    ({ signal }: { signal: AbortSignal }) =>
+      new Promise<SequenceEvent>((_resolve, reject) => {
+        onStart?.();
+        signal.addEventListener('abort', () => reject(signal.reason as Error));
+      });
+
+  it('aborts the running step and ends CANCELLED, keeping the history', async () => {
+    let secondRan = false;
+    const { engine, store } = harness([
+      createSequenceWorkflow({
+        FIRST: abortable(),
+        SECOND: () => {
+          secondRan = true;
+          return Promise.resolve({ type: 'NEXT', mark: 'second' });
+        },
+      }),
+    ]);
+    const { id } = engine.start('test-sequence', { label: 'a' });
+    await waitFor(() => store.getRunningStepRun(id) !== undefined);
+
+    const result = engine.cancel(id);
+    expect(result.outcome).toBe('requested');
+    expect(engine.isCancelRequested(id)).toBe(true);
+    await engine.whenIdle();
+
+    expect(store.getExecution(id)).toMatchObject({ status: 'CANCELLED', currentState: 'FIRST' });
+    expect(store.listStepRuns(id).map((s) => [s.status, s.error?.code])).toEqual([
+      ['INTERRUPTED', 'CANCELLED'],
+    ]);
+    const types = store.listEvents(id).map((e) => e.type);
+    expect(types.slice(-3)).toEqual(['CANCEL_REQUESTED', 'STEP_INTERRUPTED', 'STATUS_CHANGED']);
+    expect(secondRan).toBe(false);
+    expect(engine.isCancelRequested(id)).toBe(false);
+  });
+
+  it('keeps the result of a step that finishes despite the cancel, then stops', async () => {
+    const gate = deferred<SequenceEvent>();
+    let secondRan = false;
+    const { engine, store } = harness([
+      createSequenceWorkflow({
+        FIRST: () => gate.promise, // ignores the signal
+        SECOND: () => {
+          secondRan = true;
+          return Promise.resolve({ type: 'NEXT', mark: 'second' });
+        },
+      }),
+    ]);
+    const { id } = engine.start('test-sequence', { label: 'a' });
+    await waitFor(() => store.getRunningStepRun(id) !== undefined);
+
+    engine.cancel(id);
+    gate.resolve({ type: 'NEXT', mark: 'first' });
+    await engine.whenIdle();
+
+    expect(store.getExecution(id)).toMatchObject({
+      status: 'CANCELLED',
+      currentState: 'SECOND',
+      context: { label: 'a', trail: ['first'] },
+    });
+    expect(store.listStepRuns(id).map((s) => s.status)).toEqual(['SUCCEEDED']);
+    expect(secondRan).toBe(false);
+  });
+
+  it('cancels a queued execution at once, before it ever runs', async () => {
+    const gate = deferred<SequenceEvent>();
+    const { engine, store } = harness([createSequenceWorkflow({ FIRST: () => gate.promise })], {
+      maxConcurrentExecutions: 1,
+    });
+    engine.start('test-sequence', { label: 'running' });
+    const queued = engine.start('test-sequence', { label: 'queued' });
+
+    const result = engine.cancel(queued.id);
+
+    expect(result.outcome).toBe('cancelled');
+    expect(result.execution.status).toBe('CANCELLED');
+    gate.resolve({ type: 'REJECT' });
+    await engine.whenIdle();
+    expect(store.listStepRuns(queued.id)).toEqual([]);
+  });
+
+  it('cancels an INTERRUPTED execution', async () => {
+    const first = harness([createSequenceWorkflow({ FIRST: abortable() })]);
+    const { id } = first.engine.start('test-sequence', { label: 'a' });
+    await waitFor(() => first.store.getRunningStepRun(id) !== undefined);
+    await first.engine.stop({ drainTimeoutMs: 10 });
+    expect(first.store.getExecution(id)?.status).toBe('INTERRUPTED');
+    first.database.close();
+
+    const second = harness([createSequenceWorkflow()]);
+    expect(second.engine.cancel(id)).toMatchObject({
+      outcome: 'cancelled',
+      execution: { status: 'CANCELLED' },
+    });
+  });
+
+  it('refuses to cancel a finished execution', async () => {
+    const { engine } = harness([createSequenceWorkflow()]);
+    const { id } = engine.start('test-sequence', { label: 'a' });
+    await engine.whenIdle();
+
+    expect(() => engine.cancel(id)).toThrow(ExecutionConflictError);
+  });
+
+  it('reports an unknown execution', () => {
+    const { engine } = harness([createSequenceWorkflow()]);
+
+    expect(() => engine.cancel('missing')).toThrow(ExecutionNotFoundError);
   });
 });

@@ -8,6 +8,13 @@
       "when": 1792949010187,
       "tag": "0000_initial_execution_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1792950023583,
+      "tag": "0001_drop_event_type_check",
+      "breakpoints": true
     }
   ]
 }
