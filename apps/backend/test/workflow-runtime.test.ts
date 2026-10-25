@@ -23,7 +23,10 @@ describe('workflow runtime inside the app', () => {
 
     expect(existsSync(app.workflowRuntime.databasePath)).toBe(true);
     expect(app.workflowRuntime.databasePath.startsWith(config.dataDir)).toBe(true);
-    expect(app.workflowRuntime.registry.list().map((w) => w.id)).toEqual(['demo-sequence']);
+    expect(app.workflowRuntime.registry.list().map((w) => w.id)).toEqual([
+      'generate-spec',
+      'demo-sequence',
+    ]);
     await app.close();
   });
 

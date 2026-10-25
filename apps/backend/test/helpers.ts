@@ -14,6 +14,8 @@ export function testConfig(env: Record<string, string> = {}): AppConfig & { clea
       AAP_LOG_LEVEL: 'silent',
       AAP_DATA_DIR: dataDir,
       AAP_API_TOKEN: TEST_TOKEN,
+      // Never start the real CLI in tests.
+      AAP_CODING_AGENT: 'fake',
       ...env,
     }),
     cleanup: () => rmSync(dataDir, { recursive: true, force: true }),

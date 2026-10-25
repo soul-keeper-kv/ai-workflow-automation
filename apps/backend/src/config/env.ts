@@ -1,4 +1,4 @@
-import { resolve } from 'node:path';
+import { delimiter, isAbsolute, resolve } from 'node:path';
 import { DEFAULT_BACKEND_PORT } from '@aap/shared';
 import { z } from 'zod';
 import { defaultDataDir } from './paths.js';
@@ -41,6 +41,21 @@ const envSchema = z.object({
   AAP_API_TOKEN: z
     .string({ error: 'is required (at least 32 characters); `pnpm dev` sets it for you' })
     .min(32, 'must be at least 32 characters'),
+  /** Folders workflows may read and write, separated like PATH (`;` on Windows, `:` elsewhere). */
+  AAP_WORKSPACE_ROOTS: z
+    .string()
+    .optional()
+    .transform((value) =>
+      (value ?? '')
+        .split(delimiter)
+        .map((root) => root.trim())
+        .filter((root) => root !== ''),
+    )
+    .pipe(z.array(z.string().refine(isAbsolute, 'workspace roots must be absolute paths'))),
+  AAP_CODING_AGENT: z.enum(['claude-code', 'fake']).default('claude-code'),
+  AAP_CLAUDE_EXECUTABLE: z.string().trim().min(1).optional(),
+  AAP_CLAUDE_MODEL: z.string().trim().min(1).optional(),
+  AAP_CLAUDE_MAX_BUDGET_USD: z.coerce.number().positive().max(100).optional(),
 });
 
 export interface AppConfig {
@@ -55,6 +70,14 @@ export interface AppConfig {
   dataDir: string;
   /** Bearer token every /api/* request must present. Never logged. */
   apiToken: string;
+  /** The only folders workflows may touch. Empty: workflows that need files are unavailable. */
+  workspaceRoots: readonly string[];
+  codingAgent: {
+    kind: 'claude-code' | 'fake';
+    executable: string | undefined;
+    model: string | undefined;
+    maxBudgetUsd: number | undefined;
+  };
 }
 
 export class ConfigError extends Error {
@@ -77,5 +100,12 @@ export function loadConfig(
     logFormat: parsed.AAP_LOG_FORMAT,
     dataDir: resolve(parsed.AAP_DATA_DIR ?? defaultDataDir()),
     apiToken: parsed.AAP_API_TOKEN,
+    workspaceRoots: parsed.AAP_WORKSPACE_ROOTS,
+    codingAgent: {
+      kind: parsed.AAP_CODING_AGENT,
+      executable: parsed.AAP_CLAUDE_EXECUTABLE,
+      model: parsed.AAP_CLAUDE_MODEL,
+      maxBudgetUsd: parsed.AAP_CLAUDE_MAX_BUDGET_USD,
+    },
   };
 }

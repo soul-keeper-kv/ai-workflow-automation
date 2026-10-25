@@ -108,13 +108,14 @@ describe('workflows API', () => {
     const response = await app.inject({ url: '/api/workflows', headers: AUTH });
     const { workflows } = listWorkflowsResponseSchema.parse(response.json());
 
-    expect(workflows.map((w) => w.id)).toEqual(['demo-sequence']);
-    expect(workflows[0]).toMatchObject({
+    expect(workflows.map((w) => w.id)).toEqual(['generate-spec', 'demo-sequence']);
+    const demo = workflows.find((w) => w.id === 'demo-sequence');
+    expect(demo).toMatchObject({
       category: 'Demo',
       availability: { available: true },
       inputSchema: { type: 'object', required: ['items'] },
     });
-    expect(workflows[0]?.states.map((s) => [s.name, s.kind])).toEqual([
+    expect(demo?.states.map((s) => [s.name, s.kind])).toEqual([
       ['NORMALIZE', 'step'],
       ['PROCESS', 'step'],
       ['SUMMARIZE', 'step'],

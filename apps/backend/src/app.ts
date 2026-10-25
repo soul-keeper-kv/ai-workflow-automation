@@ -1,5 +1,5 @@
 import cors from '@fastify/cors';
-import type { Workflow } from '@aap/workflow-core';
+import type { CodingAgent } from '@aap/integrations';
 import Fastify, { type FastifyServerOptions } from 'fastify';
 import {
   serializerCompiler,
@@ -9,11 +9,13 @@ import {
 import { healthRoutes } from './api/health.js';
 import type { AppConfig } from './config/env.js';
 import { executionRoutes } from './modules/executions/execution-routes.js';
+import { integrationRoutes } from './modules/integrations/integration-routes.js';
 import { workflowRoutes } from './modules/workflows/workflow-routes.js';
 import { registerErrorHandling } from './plugins/error-handler.js';
 import { registerSecurity } from './plugins/security.js';
 import { APP_VERSION } from './version.js';
-import { REGISTERED_WORKFLOWS } from './workers/registered-workflows.js';
+import { createIntegrations } from './workers/integrations.js';
+import { createRegisteredWorkflows } from './workers/registered-workflows.js';
 import { createWorkflowRuntime } from './workers/workflow-runtime.js';
 
 function loggerOptions(config: AppConfig): FastifyServerOptions['logger'] {
@@ -33,8 +35,8 @@ function loggerOptions(config: AppConfig): FastifyServerOptions['logger'] {
 }
 
 export interface BuildAppOptions {
-  /** Defaults to REGISTERED_WORKFLOWS. Tests pass fixtures. */
-  workflows?: readonly Workflow[];
+  /** Replaces the configured coding agent. Tests use it to script answers. */
+  codingAgent?: CodingAgent;
 }
 
 /** Builds the app without listening, so tests can drive it with `app.inject()`. */
@@ -47,9 +49,15 @@ export async function buildApp(config: AppConfig, options: BuildAppOptions = {})
   // Before CORS, so a rejected request never gets as far as a CORS answer.
   registerSecurity(app, config);
 
+  const integrations = await createIntegrations(config, app.log);
+  if (options.codingAgent !== undefined) {
+    integrations.codingAgent = options.codingAgent;
+    integrations.codingAgentInfo = await options.codingAgent.probe();
+  }
   const runtime = createWorkflowRuntime({
     dataDir: config.dataDir,
-    workflows: options.workflows ?? REGISTERED_WORKFLOWS,
+    workflows: createRegisteredWorkflows(integrations),
+    integrations,
     logger: app.log,
   });
   app.decorate('workflowRuntime', runtime);
@@ -84,6 +92,7 @@ export async function buildApp(config: AppConfig, options: BuildAppOptions = {})
   await app.register(healthRoutes, { version: APP_VERSION });
   await app.register(workflowRoutes, { runtime });
   await app.register(executionRoutes, { runtime });
+  await app.register(integrationRoutes, { runtime });
 
   return app;
 }

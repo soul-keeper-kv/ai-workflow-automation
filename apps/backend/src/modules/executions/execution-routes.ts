@@ -36,7 +36,7 @@ export const executionRoutes: FastifyPluginCallbackZod<{ runtime: WorkflowRuntim
     { schema: { body: startExecutionRequestSchema, response: { 201: executionResponseSchema } } },
     (request, reply) => {
       // Returns as soon as the execution is persisted; steps run in the engine, not here.
-      const execution = engine.start(request.body.workflowId, request.body.input);
+      const execution = runtime.start(request.body.workflowId, request.body.input);
       reply.code(201);
       return { execution: toExecutionDetail(execution, runtime) };
     },

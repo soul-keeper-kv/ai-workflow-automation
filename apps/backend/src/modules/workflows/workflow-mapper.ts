@@ -1,4 +1,4 @@
-import type { WorkflowStateDto, WorkflowSummary } from '@aap/shared';
+import type { WorkflowRequirement, WorkflowStateDto, WorkflowSummary } from '@aap/shared';
 import type { StateInfo, Workflow } from '@aap/workflow-core';
 
 export function toStateDto(state: StateInfo): WorkflowStateDto {
@@ -11,16 +11,19 @@ export function toStateDto(state: StateInfo): WorkflowStateDto {
   };
 }
 
-export function toWorkflowSummary(workflow: Workflow): WorkflowSummary {
+export function toWorkflowSummary(
+  workflow: Workflow,
+  availability: { available: boolean; reason: string | null },
+  requirements: readonly WorkflowRequirement[],
+): WorkflowSummary {
   return {
     id: workflow.id,
     version: workflow.version,
     name: workflow.name,
     description: workflow.description,
     category: workflow.category,
-    // Every registered workflow can run today. Workflows that need an integration (a coding
-    // agent, Jira, ...) will report it here once those exist.
-    availability: { available: true, reason: null },
+    availability,
+    requirements: [...requirements],
     inputSchema: workflow.inputJsonSchema,
     states: workflow.states.map(toStateDto),
   };

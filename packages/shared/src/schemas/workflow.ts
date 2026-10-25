@@ -1,6 +1,10 @@
 import { z } from 'zod';
 import { workflowIdSchema, workflowStateSchema } from './execution.js';
 
+/** `workspace`: reads or writes files in allowed folders. `coding-agent`: sends code to an AI agent. */
+export const WORKFLOW_REQUIREMENTS = ['workspace', 'coding-agent'] as const;
+export type WorkflowRequirement = (typeof WORKFLOW_REQUIREMENTS)[number];
+
 export const workflowSummarySchema = z.object({
   id: z.string(),
   version: z.string(),
@@ -12,6 +16,8 @@ export const workflowSummarySchema = z.object({
     /** Why the workflow cannot be started right now, e.g. a missing integration. */
     reason: z.string().nullable(),
   }),
+  /** What the workflow needs from this machine; the UI explains what each one implies. */
+  requirements: z.array(z.enum(WORKFLOW_REQUIREMENTS)),
   /** JSON Schema (draft 2020-12) of the input. The server still validates every request. */
   inputSchema: z.record(z.string(), z.unknown()),
   states: z.array(workflowStateSchema),
