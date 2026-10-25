@@ -1,5 +1,7 @@
 import {
+  approvalParamsSchema,
   cancelExecutionResponseSchema,
+  decideApprovalRequestSchema,
   executionIdParamsSchema,
   executionResponseSchema,
   executionStatsResponseSchema,
@@ -95,6 +97,37 @@ export const executionRoutes: FastifyPluginCallbackZod<{ runtime: WorkflowRuntim
       reply.code(outcome === 'cancelled' ? 200 : 202);
       return { outcome, execution: toExecutionDetail(execution, runtime) };
     },
+  );
+
+  app.post(
+    '/api/executions/:executionId/approvals/:approvalId/decision',
+    {
+      schema: {
+        params: approvalParamsSchema,
+        body: decideApprovalRequestSchema,
+        response: { 200: executionResponseSchema },
+      },
+    },
+    (request) => {
+      const { executionId, approvalId } = request.params;
+      const execution = engine.decide(
+        executionId,
+        approvalId,
+        request.body.decision,
+        request.body.feedback ?? null,
+      );
+      return { execution: toExecutionDetail(execution, runtime) };
+    },
+  );
+
+  // Re-runs the current step of an INTERRUPTED execution. The UI asks the person to confirm,
+  // because the interrupted attempt may already have had side effects.
+  app.post(
+    '/api/executions/:executionId/resume',
+    { schema: { params: executionIdParamsSchema, response: { 200: executionResponseSchema } } },
+    (request) => ({
+      execution: toExecutionDetail(engine.resume(request.params.executionId), runtime),
+    }),
   );
 
   app.get(

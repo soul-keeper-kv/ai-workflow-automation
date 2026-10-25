@@ -7,6 +7,7 @@ export function toStateDto(state: StateInfo): WorkflowStateDto {
     kind: state.kind,
     title: state.title,
     finalStatus: state.finalStatus,
+    approvalType: state.approvalType,
   };
 }
 

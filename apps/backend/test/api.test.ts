@@ -27,7 +27,9 @@ afterEach(async () => {
 
 const errorCode = (body: unknown) => apiErrorResponseSchema.parse(body).error.code;
 
-async function startDemo(input: unknown = { items: ['a', 'b'], stepDelayMs: 0 }) {
+async function startDemo(
+  input: unknown = { items: ['a', 'b'], stepDelayMs: 0, requireReview: false },
+) {
   const response = await app.inject({
     method: 'POST',
     url: '/api/executions',
@@ -112,11 +114,13 @@ describe('workflows API', () => {
       availability: { available: true },
       inputSchema: { type: 'object', required: ['items'] },
     });
-    expect(workflows[0]?.states.map((s) => s.name)).toEqual([
-      'NORMALIZE',
-      'PROCESS',
-      'SUMMARIZE',
-      'DONE',
+    expect(workflows[0]?.states.map((s) => [s.name, s.kind])).toEqual([
+      ['NORMALIZE', 'step'],
+      ['PROCESS', 'step'],
+      ['SUMMARIZE', 'step'],
+      ['REVIEW', 'approval'],
+      ['DONE', 'final'],
+      ['REJECTED', 'final'],
     ]);
   });
 
@@ -132,7 +136,7 @@ describe('workflows API', () => {
 
 describe('executions API', () => {
   it('starts an execution and returns before it finishes', async () => {
-    const execution = await startDemo({ items: ['x'], stepDelayMs: 200 });
+    const execution = await startDemo({ items: ['x'], stepDelayMs: 200, requireReview: false });
 
     expect(['PENDING', 'RUNNING']).toContain(execution.status);
     expect(execution.workflowName).toBe('Demo sequence');
@@ -293,5 +297,91 @@ describe('cancel API', () => {
 
     expect(response.statusCode).toBe(409);
     expect(errorCode(response.json())).toBe('CONFLICT');
+  });
+});
+
+describe('approvals API', () => {
+  async function waitingExecution() {
+    const started = await startDemo({ items: ['a'], stepDelayMs: 0 });
+    await app.workflowRuntime.engine.whenIdle();
+    const execution = await getExecution(started.id);
+    expect(execution.status).toBe('WAITING_FOR_APPROVAL');
+    if (execution.pendingApproval === null) throw new Error('expected a pending approval');
+    return { execution, approval: execution.pendingApproval };
+  }
+
+  const decide = (executionId: string, approvalId: string, payload: Record<string, unknown>) =>
+    app.inject({
+      method: 'POST',
+      url: `/api/executions/${executionId}/approvals/${approvalId}/decision`,
+      headers: AUTH,
+      payload,
+    });
+
+  it('exposes the pending request in the execution detail', async () => {
+    const { approval } = await waitingExecution();
+
+    expect(approval).toMatchObject({
+      approvalType: 'summary-review',
+      stateTitle: 'Review summary',
+      status: 'PENDING',
+      request: { summary: 'Processed 1 item(s): A.' },
+      decision: null,
+    });
+  });
+
+  it('approves with feedback and completes the execution', async () => {
+    const { execution, approval } = await waitingExecution();
+
+    const response = await decide(execution.id, approval.id, {
+      decision: 'APPROVED',
+      feedback: '  fine  ',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const after = executionResponseSchema.parse(response.json()).execution;
+    expect(after).toMatchObject({ status: 'COMPLETED', pendingApproval: null });
+    expect(after.approvals[0]).toMatchObject({
+      status: 'APPROVED',
+      decision: { decision: 'APPROVED', feedback: 'fine' },
+    });
+  });
+
+  it('rejects and cancels the execution', async () => {
+    const { execution, approval } = await waitingExecution();
+
+    const response = await decide(execution.id, approval.id, { decision: 'REJECTED' });
+
+    expect(executionResponseSchema.parse(response.json()).execution.status).toBe('CANCELLED');
+  });
+
+  it('refuses a second decision, an unknown approval and an invalid decision', async () => {
+    const { execution, approval } = await waitingExecution();
+    await decide(execution.id, approval.id, { decision: 'APPROVED' });
+
+    const again = await decide(execution.id, approval.id, { decision: 'REJECTED' });
+    const unknown = await decide(execution.id, '00000000-0000-4000-8000-000000000000', {
+      decision: 'APPROVED',
+    });
+    const invalid = await decide(execution.id, approval.id, { decision: 'MAYBE' });
+
+    expect(again.statusCode).toBe(409);
+    expect(unknown.statusCode).toBe(404);
+    expect(invalid.statusCode).toBe(400);
+  });
+});
+
+describe('resume API', () => {
+  it('refuses to resume an execution that is not INTERRUPTED', async () => {
+    const started = await startDemo();
+    await app.workflowRuntime.engine.whenIdle();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/executions/${started.id}/resume`,
+      headers: AUTH,
+    });
+
+    expect(response.statusCode).toBe(409);
   });
 });

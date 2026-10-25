@@ -5,6 +5,7 @@ import {
   type ValidationIssueDto,
 } from '@aap/shared';
 import {
+  ApprovalNotFoundError,
   ConcurrentModificationError,
   ExecutionConflictError,
   ExecutionNotFoundError,
@@ -57,7 +58,11 @@ export function registerErrorHandling(app: FastifyInstance): void {
           ]),
         );
     }
-    if (error instanceof WorkflowNotFoundError || error instanceof ExecutionNotFoundError) {
+    if (
+      error instanceof WorkflowNotFoundError ||
+      error instanceof ExecutionNotFoundError ||
+      error instanceof ApprovalNotFoundError
+    ) {
       return reply.code(404).send(errorBody(API_ERROR_CODES.notFound, error.message));
     }
     if (

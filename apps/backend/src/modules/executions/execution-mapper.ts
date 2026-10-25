@@ -1,12 +1,26 @@
-import type { ExecutionDetail, ExecutionEvent, ExecutionSummary, StepRun } from '@aap/shared';
+import {
+  approvalDecisionSchema,
+  type Approval,
+  type ExecutionDetail,
+  type ExecutionEvent,
+  type ExecutionSummary,
+  type StepRun,
+} from '@aap/shared';
 import type {
+  ApprovalRecord,
   ExecutionEventRecord,
   ExecutionRecord,
   ExecutionSummaryRecord,
   StepRunRecord,
 } from '@aap/workflow-core';
 import type { WorkflowRuntime } from '../../workers/workflow-runtime.js';
+import { z } from 'zod';
 import { toStateDto } from '../workflows/workflow-mapper.js';
+
+const decisionPayloadSchema = z.object({
+  decision: approvalDecisionSchema,
+  feedback: z.string().nullable(),
+});
 
 const iso = (date: Date) => date.toISOString();
 const isoOrNull = (date: Date | null) => (date === null ? null : date.toISOString());
@@ -50,11 +64,33 @@ function toStepRun(record: StepRunRecord, runtime: WorkflowRuntime, workflowId: 
   };
 }
 
+function toApproval(
+  record: ApprovalRecord,
+  runtime: WorkflowRuntime,
+  workflowId: string,
+): Approval {
+  const decision = decisionPayloadSchema.safeParse(record.decision);
+  return {
+    id: record.id,
+    approvalType: record.approvalType,
+    state: record.state,
+    stateTitle: runtime.registry.get(workflowId)?.getState(record.state)?.title ?? record.state,
+    status: record.status,
+    request: record.request,
+    decision: decision.success ? decision.data : null,
+    createdAt: iso(record.createdAt),
+    decidedAt: isoOrNull(record.decidedAt),
+  };
+}
+
 export function toExecutionDetail(
   record: ExecutionRecord,
   runtime: WorkflowRuntime,
 ): ExecutionDetail {
   const workflow = runtime.registry.get(record.workflowId);
+  const approvals = runtime.store
+    .listApprovals(record.id)
+    .map((approval) => toApproval(approval, runtime, record.workflowId));
   return {
     ...toExecutionSummary(record, runtime),
     input: record.input,
@@ -63,6 +99,8 @@ export function toExecutionDetail(
     steps: runtime.store
       .listStepRuns(record.id)
       .map((step) => toStepRun(step, runtime, record.workflowId)),
+    approvals,
+    pendingApproval: approvals.find((approval) => approval.status === 'PENDING') ?? null,
   };
 }
 

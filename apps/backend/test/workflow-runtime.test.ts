@@ -35,11 +35,13 @@ describe('workflow runtime inside the app', () => {
     const finished = first.workflowRuntime.engine.start('demo-sequence', {
       items: ['a'],
       stepDelayMs: 0,
+      requireReview: false,
     });
     await first.workflowRuntime.engine.whenIdle();
     const unfinished = first.workflowRuntime.engine.start('demo-sequence', {
       items: ['x', 'y', 'z'],
       stepDelayMs: 100,
+      requireReview: false,
     });
     // Close while the demo is mid-way: the running step is allowed to finish, then the app stops.
     await new Promise((resolve) => setTimeout(resolve, 150));
