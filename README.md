@@ -6,13 +6,19 @@ more). It runs on your machine. There is no remote application backend.
 
 ## Status
 
-**Phase 3 (approvals and failure handling).** What exists today:
+**Phase 4 (Generate Spec workflow).** What exists today:
 
 - A pnpm monorepo with strict TypeScript, ESLint, Prettier and Vitest.
 - `packages/workflow-core`: the workflow contract (`defineWorkflow`), registry, execution
   lifecycle, the in-process worker (`ExecutionEngine`) with cooperative cancellation, human
   approval states, bounded retries, step timeouts, SQLite persistence with migrations, event
   history, conservative restart recovery and manual resume.
+- `packages/integrations`: a shell-free process runner (timeouts, cancellation, output caps,
+  kills whole process trees), a workspace filesystem limited to allowed folders, and coding
+  agents: Claude Code CLI (read-only, restricted) and an offline fake.
+- `packages/workflow-generate-spec`: the **Generate Spec** workflow. It reads a source folder,
+  drafts a Markdown spec with Claude Code (facts cited, assumptions listed separately), checks
+  it, waits for your review, and saves it.
 - `packages/workflow-demo`: the `demo-sequence` workflow (no AI, no side effects), with an
   optional review step and simulated failures to try approvals and retries.
 - `apps/backend`: a Fastify API bound to `127.0.0.1`, protected by a per-run bearer token,
@@ -24,7 +30,7 @@ more). It runs on your machine. There is no remote application backend.
   holds the Tauri 2 shell configuration.
 - `packages/shared`: Zod schemas for the API contracts both apps use.
 
-**Not built yet:** the Claude Code adapter and the Generate Spec workflow. The Tauri shell has **not been compiled yet**, because the development machine
+**Not built yet:** other workflows (Fix Bug, Playwright, Gatling), and the end-to-end test suite. The Tauri shell has **not been compiled yet**, because the development machine
 has no Rust toolchain (see Prerequisites); the packaged app does not start the backend yet
 either.
 
@@ -120,6 +126,7 @@ After changing `packages/workflow-core/src/persistence/schema.ts`, generate a mi
 - [ADR 0004: Workflow engine and persistence](docs/adr/0004-workflow-engine-and-persistence.md)
 - [ADR 0005: Execution API, local auth and cancellation](docs/adr/0005-execution-api-and-local-auth.md)
 - [ADR 0006: Approvals, retries, timeouts and recovery](docs/adr/0006-approvals-retries-and-recovery.md)
+- [ADR 0007: Integrations and the Generate Spec workflow](docs/adr/0007-integrations-and-generate-spec.md)
 
 ## Troubleshooting
 
