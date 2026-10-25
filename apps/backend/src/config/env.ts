@@ -1,5 +1,7 @@
+import { resolve } from 'node:path';
 import { DEFAULT_BACKEND_PORT } from '@aap/shared';
 import { z } from 'zod';
+import { defaultDataDir } from './paths.js';
 
 /** The API must never listen on a non-loopback interface. */
 const LOOPBACK_HOSTS = ['127.0.0.1', '::1'] as const;
@@ -34,6 +36,7 @@ const envSchema = z.object({
     .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
     .default('info'),
   AAP_LOG_FORMAT: z.enum(['json', 'pretty']).default('json'),
+  AAP_DATA_DIR: z.string().trim().min(1).optional(),
 });
 
 export interface AppConfig {
@@ -44,6 +47,8 @@ export interface AppConfig {
   allowedOrigins: readonly string[];
   logLevel: z.infer<typeof envSchema>['AAP_LOG_LEVEL'];
   logFormat: z.infer<typeof envSchema>['AAP_LOG_FORMAT'];
+  /** Absolute directory for the SQLite database. Never inside the source repository. */
+  dataDir: string;
 }
 
 export class ConfigError extends Error {
@@ -64,5 +69,6 @@ export function loadConfig(
     allowedOrigins: parsed.AAP_ALLOWED_ORIGINS,
     logLevel: parsed.AAP_LOG_LEVEL,
     logFormat: parsed.AAP_LOG_FORMAT,
+    dataDir: resolve(parsed.AAP_DATA_DIR ?? defaultDataDir()),
   };
 }

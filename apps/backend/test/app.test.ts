@@ -1,10 +1,10 @@
 import { apiErrorResponseSchema, healthResponseSchema } from '@aap/shared';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp, type App } from '../src/app.js';
-import { loadConfig } from '../src/config/env.js';
 import { APP_VERSION } from '../src/version.js';
+import { testConfig } from './helpers.js';
 
-const config = loadConfig({ AAP_LOG_LEVEL: 'silent' });
+const config = testConfig();
 
 let app: App;
 
@@ -15,6 +15,8 @@ beforeEach(async () => {
 afterEach(async () => {
   await app.close();
 });
+
+afterAll(() => config.cleanup());
 
 describe('GET /health', () => {
   it('returns the health contract with the package version', async () => {
