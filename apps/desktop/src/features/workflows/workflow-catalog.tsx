@@ -1,6 +1,6 @@
 'use client';
 
-import type { WorkflowSummary } from '@aap/shared';
+import type { WorkflowRequirement, WorkflowSummary } from '@aap/shared';
 import { Play } from 'lucide-react';
 import Link from 'next/link';
 import { EmptyState, ErrorAlert, LoadingBlock } from '@/components/query-states';
@@ -17,6 +17,11 @@ import {
 import { useWorkflows } from '@/hooks/use-api';
 import { buildFormModel } from './schema-fields';
 
+const REQUIREMENT_LABELS: Record<WorkflowRequirement, string> = {
+  workspace: 'Reads and writes files',
+  'coding-agent': 'Uses an AI coding agent',
+};
+
 function requiredInputs(workflow: WorkflowSummary): string[] {
   const model = buildFormModel(workflow.inputSchema);
   return model === null ? [] : model.fields.filter((f) => f.required).map((f) => f.label);
@@ -30,6 +35,13 @@ function WorkflowCard({ workflow }: { workflow: WorkflowSummary }) {
         <div className="flex items-center justify-between gap-2">
           <CardTitle>{workflow.name}</CardTitle>
           <Badge variant="secondary">{workflow.category}</Badge>
+        </div>
+        <div className="flex flex-wrap gap-1">
+          {workflow.requirements.map((requirement) => (
+            <Badge key={requirement} variant="outline">
+              {REQUIREMENT_LABELS[requirement]}
+            </Badge>
+          ))}
         </div>
         <CardDescription>{workflow.description}</CardDescription>
       </CardHeader>

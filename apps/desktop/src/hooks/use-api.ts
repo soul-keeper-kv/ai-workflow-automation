@@ -15,6 +15,7 @@ export const queryKeys = {
   workflow: (id: string) => ['workflows', id] as const,
   executions: (query: ListExecutionsQuery) => ['executions', 'list', query] as const,
   stats: ['executions', 'stats'] as const,
+  integrations: ['integrations'] as const,
   execution: (id: string) => ['executions', 'detail', id] as const,
   events: (id: string) => ['executions', 'events', id] as const,
 };
@@ -40,6 +41,13 @@ export function useExecutions(query: ListExecutionsQuery) {
     queryFn: ({ signal }) => api.listExecutions(query, signal),
     refetchInterval: LIST_POLL_MS,
     placeholderData: (previous) => previous,
+  });
+}
+
+export function useIntegrations() {
+  return useQuery({
+    queryKey: queryKeys.integrations,
+    queryFn: ({ signal }) => api.integrations(signal),
   });
 }
 

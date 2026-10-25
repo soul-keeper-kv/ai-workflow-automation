@@ -31,7 +31,15 @@ export function ApprovalRequest({ request }: { request: unknown }) {
           </dt>
           <dd>
             {typeof value === 'string' ? (
-              <p className="text-sm whitespace-pre-wrap">{value}</p>
+              <p
+                className={
+                  value.length > 400
+                    ? 'max-h-[60vh] overflow-auto rounded-md border bg-muted/30 p-3 font-mono text-xs whitespace-pre-wrap'
+                    : 'text-sm whitespace-pre-wrap'
+                }
+              >
+                {value}
+              </p>
             ) : (
               <JsonBlock value={value} />
             )}

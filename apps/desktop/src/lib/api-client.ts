@@ -4,6 +4,7 @@ import {
   executionResponseSchema,
   executionStatsResponseSchema,
   healthResponseSchema,
+  integrationsResponseSchema,
   listEventsResponseSchema,
   listExecutionsResponseSchema,
   listWorkflowsResponseSchema,
@@ -108,6 +109,9 @@ async function request<T>(path: string, schema: z.ZodType<T>, options: RequestOp
 
 export const api = {
   health: (signal?: AbortSignal) => request('/health', healthResponseSchema, { signal }),
+
+  integrations: (signal?: AbortSignal) =>
+    request('/api/integrations', integrationsResponseSchema, { signal }),
 
   listWorkflows: (signal?: AbortSignal) =>
     request('/api/workflows', listWorkflowsResponseSchema, { signal }),

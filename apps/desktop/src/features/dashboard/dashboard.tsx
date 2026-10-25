@@ -9,6 +9,7 @@ import { buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ExecutionTable } from '@/features/executions/execution-table';
 import { BackendStatusCard } from '@/features/system-status/backend-status-card';
+import { IntegrationsCard } from '@/features/system-status/integrations-card';
 import { useExecutionStats } from '@/hooks/use-api';
 
 const TILES: { label: string; status: ExecutionStatus | null }[] = [
@@ -85,7 +86,10 @@ export function Dashboard() {
             </Card>
           </>
         )}
-        <BackendStatusCard />
+        <div className="grid gap-6 lg:grid-cols-2">
+          <IntegrationsCard />
+          <BackendStatusCard />
+        </div>
       </div>
     </>
   );
