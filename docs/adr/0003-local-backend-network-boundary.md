@@ -1,6 +1,6 @@
 # ADR 0003 — Local backend network boundary
 
-- Status: accepted (authentication and production launch are still open, see below)
+- Status: accepted (production launch is still open, see below)
 - Date: 2026-10-25
 - Phase: 0
 
@@ -28,16 +28,14 @@ arrive in Phase 2.
 
 ## Open questions
 
-1. **Authentication. Must be settled before the first state-changing endpoint (Phase 2).**
-   Proposal: Tauri generates a random token per launch, passes it to the backend through an
-   environment variable and to the webview through a Tauri command. The backend then requires
-   `Authorization: Bearer <token>` on `/api/*` and checks `Origin`.
+1. ~~Authentication.~~ Closed by [ADR 0005](0005-execution-api-and-local-auth.md).
 2. **How Tauri starts and stops the backend in production.** Options: a sidecar binary built
    with Node single-executable applications (which must carry `better-sqlite3`'s native
    module), or spawning a Node.js installed on the machine. This decides how the frontend learns
-   the port and the token.
+   the port and the token. Still open: it cannot be built or tested without a Rust toolchain.
 3. **The app identifier** (`com.aiautomationplatform.desktop`) decides the OS app-data
-   directory, where SQLite will live. Confirm it before Phase 1 writes data there.
+   directory, where SQLite lives. Development data goes to its `dev` subfolder (ADR 0004);
+   confirm the identifier before the first release, because changing it later moves user data.
 
 ## Observed during Phase 0
 
