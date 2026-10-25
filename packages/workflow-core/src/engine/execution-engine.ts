@@ -267,7 +267,12 @@ export class ExecutionEngine {
         status,
         currentState: outcome.stateAfter,
         context: outcome.context,
-        ...(outcome.final === null ? {} : { output: outcome.final.output }),
+        ...(outcome.final === null
+          ? {}
+          : {
+              output: outcome.final.output,
+              ...(outcome.final.error === null ? {} : { error: outcome.final.error }),
+            }),
       },
       events: [
         {
@@ -770,7 +775,11 @@ export class ExecutionEngine {
         context: outcome.context,
         ...(outcome.final === null
           ? {}
-          : { status: outcome.final.status, output: outcome.final.output }),
+          : {
+              status: outcome.final.status,
+              output: outcome.final.output,
+              ...(outcome.final.error === null ? {} : { error: outcome.final.error }),
+            }),
         ...(cancelled ? { status: 'CANCELLED' } : {}),
         ...(waiting ? { status: 'WAITING_FOR_APPROVAL' } : {}),
       },

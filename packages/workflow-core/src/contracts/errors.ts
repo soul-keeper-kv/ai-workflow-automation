@@ -20,6 +20,8 @@ export const ENGINE_ERROR_CODES = {
   /** The user cancelled while the step was running. */
   cancelled: 'CANCELLED',
   stepTimeout: 'STEP_TIMEOUT',
+  /** The machine reached a FAILED final state that names no code of its own. */
+  workflowFailed: 'WORKFLOW_FAILED',
 } as const;
 
 export class WorkflowEngineError extends Error {

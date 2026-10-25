@@ -179,6 +179,7 @@ describe('Workflow.runStep', () => {
     expect(outcome.final).toEqual({
       status: 'COMPLETED',
       output: { label: 'x', trail: ['first', 'second'] },
+      error: null,
     });
   });
 

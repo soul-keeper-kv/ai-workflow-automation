@@ -420,3 +420,48 @@ describe('recovery policy and resume', () => {
     expect(() => h.engine.resume(id)).toThrow(ExecutionConflictError);
   });
 });
+
+describe('FAILED final states', () => {
+  it('report the error named by the final state', async () => {
+    const machine = setup({
+      types: { context: {}, events: {} as { type: 'GIVE_UP' } },
+    }).createMachine({
+      initial: 'TRY',
+      context: {},
+      states: { TRY: { on: { GIVE_UP: 'GAVE_UP' } }, GAVE_UP: { type: 'final' } },
+    });
+    const workflow = defineWorkflow({
+      id: 'gives-up',
+      version: '1.0.0',
+      name: 'Gives up',
+      description: 'Ends in a FAILED final state.',
+      category: 'Test',
+      machine,
+      inputSchema: z.object({}),
+      contextSchema: z.object({}),
+      outputSchema: z.undefined(),
+      states: {
+        TRY: {
+          kind: 'step',
+          title: 'Try',
+          run: () => Promise.resolve({ type: 'GIVE_UP' as const }),
+        },
+        GAVE_UP: {
+          kind: 'final',
+          title: 'Gave up',
+          status: 'FAILED',
+          errorCode: 'NOT_POSSIBLE',
+          errorMessage: 'It could not be done.',
+        },
+      },
+    });
+    const h = harness([workflow]);
+    const { id } = h.engine.start('gives-up', {});
+    await h.engine.whenIdle();
+
+    expect(h.store.getExecution(id)).toMatchObject({
+      status: 'FAILED',
+      error: { code: 'NOT_POSSIBLE', message: 'It could not be done.' },
+    });
+  });
+});

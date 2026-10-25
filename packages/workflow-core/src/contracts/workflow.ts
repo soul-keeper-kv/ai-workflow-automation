@@ -103,6 +103,9 @@ export interface FinalStateDefinition {
   readonly title: string;
   /** Execution status once the machine reaches this state. */
   readonly status: FinalStatus;
+  /** For FAILED: the error the execution reports. Defaults to WORKFLOW_FAILED and the title. */
+  readonly errorCode?: string;
+  readonly errorMessage?: string;
 }
 
 export type StateDefinition<TContext, TEvent> =
@@ -184,7 +187,12 @@ export interface TransitionOutcome {
   readonly stateAfter: string;
   readonly context: JsonValue;
   /** Set when `stateAfter` is a final state. */
-  readonly final: { readonly status: FinalStatus; readonly output: JsonValue | null } | null;
+  readonly final: {
+    readonly status: FinalStatus;
+    readonly output: JsonValue | null;
+    /** For FAILED final states: what the execution reports as its error. */
+    readonly error: { readonly code: string; readonly message: string } | null;
+  } | null;
   /** Set when `stateAfter` is an approval state: the request to create. */
   readonly approval: { readonly approvalType: string; readonly request: JsonValue } | null;
 }
@@ -409,9 +417,17 @@ export function defineWorkflow<TMachine extends AnyStateMachine>(
       if (!output.success) {
         return fail(ENGINE_ERROR_CODES.invalidOutput, `output is invalid: ${output.message}`);
       }
-      final = { status: 'COMPLETED', output: output.json };
+      final = { status: 'COMPLETED', output: output.json, error: null };
     } else if (after.finalStatus !== null) {
-      final = { status: after.finalStatus, output: null };
+      const definition = spec.states[after.name];
+      const error =
+        after.finalStatus === 'FAILED' && definition?.kind === 'final'
+          ? {
+              code: definition.errorCode ?? ENGINE_ERROR_CODES.workflowFailed,
+              message: definition.errorMessage ?? `The workflow ended in "${after.title}".`,
+            }
+          : null;
+      final = { status: after.finalStatus, output: null, error };
     }
 
     let approval: TransitionOutcome['approval'] = null;
