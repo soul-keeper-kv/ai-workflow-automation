@@ -5,7 +5,7 @@ import { CircleCheck, CircleX, LoaderCircle, RefreshCw } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { getHealth } from '@/lib/api-client';
+import { api } from '@/lib/api-client';
 import { apiBaseUrl } from '@/lib/config';
 
 const POLL_INTERVAL_MS = 10_000;
@@ -22,7 +22,7 @@ function formatUptime(totalSeconds: number): string {
 export function BackendStatusCard() {
   const health = useQuery({
     queryKey: ['health'],
-    queryFn: ({ signal }) => getHealth(signal),
+    queryFn: ({ signal }) => api.health(signal),
     refetchInterval: POLL_INTERVAL_MS,
   });
 
