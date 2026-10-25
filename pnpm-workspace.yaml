@@ -3,8 +3,11 @@ packages:
   - packages/*
 
 # Dependency install scripts are blocked unless listed here (pnpm 11 default).
-# esbuild's postinstall only verifies the prebuilt binary that pnpm already installed.
+# Both packages already ship prebuilt binaries, so their scripts are not needed:
+# - better-sqlite3 has binding.gyp (implies node-gyp rebuild) but bundles prebuilds/.
+# - esbuild's postinstall only re-checks the binary pnpm installed.
 allowBuilds:
+  better-sqlite3: false
   esbuild: false
 
 # Versions used by more than one package live here, once.
@@ -15,6 +18,7 @@ catalog:
   # TypeScript 7 exists, but typescript-eslint 8 supports only <6.1. See docs/adr/0001.
   typescript: ~6.0.2
   vitest: ^5.0.0
+  xstate: ^5.33.0
   zod: ^4.6.0
 
 # Supply-chain guard: only resolve versions published at least 7 days ago.

@@ -1,0 +1,37 @@
+{
+  "name": "@aap/workflow-core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Workflow engine: contracts, registry, execution lifecycle, worker and SQLite persistence.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "drizzle"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "db:generate": "drizzle-kit generate"
+  },
+  "dependencies": {
+    "@aap/shared": "workspace:*",
+    "better-sqlite3": "^13.0.3",
+    "drizzle-orm": "^0.45.4",
+    "xstate": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "catalog:",
+    "drizzle-kit": "^0.31.10",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

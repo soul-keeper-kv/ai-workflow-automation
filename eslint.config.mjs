@@ -30,6 +30,10 @@ export default defineConfig(
     linterOptions: {
       reportUnusedDisableDirectives: 'error',
     },
+    rules: {
+      // `const { omitted, ...rest } = value` is the idiomatic way to drop a key.
+      '@typescript-eslint/no-unused-vars': ['error', { ignoreRestSiblings: true }],
+    },
   },
 
   {

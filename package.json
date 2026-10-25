@@ -8,14 +8,14 @@
     "node": ">=24.11.0"
   },
   "scripts": {
-    "build:shared": "pnpm --filter @aap/shared build",
-    "dev": "pnpm build:shared && pnpm --parallel --filter @aap/backend --filter @aap/desktop dev",
+    "build:packages": "pnpm --filter \"./packages/**\" build",
+    "dev": "pnpm build:packages && pnpm --parallel --filter @aap/backend --filter @aap/desktop dev",
     "dev:desktop": "pnpm --filter @aap/desktop tauri dev",
     "build": "pnpm --recursive build",
     "build:desktop": "pnpm --filter @aap/desktop tauri build",
-    "typecheck": "pnpm build:shared && pnpm --recursive typecheck",
-    "lint": "pnpm build:shared && eslint .",
-    "test": "pnpm build:shared && pnpm --recursive test",
+    "typecheck": "pnpm build:packages && pnpm --recursive typecheck",
+    "lint": "pnpm build:packages && eslint .",
+    "test": "pnpm build:packages && pnpm --recursive test",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build"
