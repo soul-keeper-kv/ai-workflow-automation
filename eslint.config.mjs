@@ -16,6 +16,8 @@ export default defineConfig(
     '**/next-env.d.ts',
     'apps/desktop/src-tauri/target/',
     'apps/desktop/src-tauri/gen/',
+    // Sample input for workflows, not application code.
+    'examples/',
   ]),
 
   js.configs.recommended,

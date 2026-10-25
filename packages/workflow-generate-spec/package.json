@@ -1,0 +1,32 @@
+{
+  "name": "@aap/workflow-generate-spec",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Generate Spec workflow: a reviewed Markdown specification from existing source code.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@aap/integrations": "workspace:*",
+    "@aap/workflow-core": "workspace:*",
+    "xstate": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
