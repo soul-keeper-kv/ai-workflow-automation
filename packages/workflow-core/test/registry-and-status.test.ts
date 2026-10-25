@@ -37,6 +37,7 @@ describe('execution lifecycle', () => {
     ['PENDING', 'RUNNING'],
     ['RUNNING', 'WAITING_FOR_APPROVAL'],
     ['WAITING_FOR_APPROVAL', 'RUNNING'],
+    ['WAITING_FOR_APPROVAL', 'COMPLETED'],
     ['RUNNING', 'COMPLETED'],
     ['RUNNING', 'INTERRUPTED'],
     ['INTERRUPTED', 'RUNNING'],
@@ -48,8 +49,8 @@ describe('execution lifecycle', () => {
   it.each([
     ['PENDING', 'COMPLETED'],
     ['PENDING', 'WAITING_FOR_APPROVAL'],
-    ['WAITING_FOR_APPROVAL', 'COMPLETED'],
     ['INTERRUPTED', 'COMPLETED'],
+    ['INTERRUPTED', 'WAITING_FOR_APPROVAL'],
   ] as const)('rejects %s -> %s', (from, to) => {
     expect(() => assertStatusTransition(from, to)).toThrow(InvalidStatusTransitionError);
   });
@@ -65,13 +66,23 @@ describe('execution lifecycle', () => {
 
 describe('planRecovery', () => {
   it('resumes an execution that stopped between steps', () => {
-    expect(planRecovery({ status: 'RUNNING' }, null)).toEqual({ action: 'resume' });
+    expect(planRecovery({ status: 'RUNNING' }, null, null)).toEqual({ action: 'resume' });
   });
 
   it('interrupts an execution whose step was running, without re-running it', () => {
-    const plan = planRecovery({ status: 'RUNNING' }, { stepId: 'IMPLEMENT' });
+    const plan = planRecovery({ status: 'RUNNING' }, { stepId: 'IMPLEMENT' }, 'manual');
 
     expect(plan.action).toBe('interrupt');
     expect(plan.action === 'interrupt' && plan.error.code).toBe('INTERRUPTED');
+  });
+
+  it('re-runs a step that declares itself safe to repeat', () => {
+    expect(planRecovery({ status: 'RUNNING' }, { stepId: 'DISCOVER' }, 'rerun').action).toBe(
+      'rerun',
+    );
+  });
+
+  it('interrupts when the workflow is gone and its policy is unknown', () => {
+    expect(planRecovery({ status: 'RUNNING' }, { stepId: 'X' }, null).action).toBe('interrupt');
   });
 });

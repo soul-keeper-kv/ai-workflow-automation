@@ -1,4 +1,9 @@
-import type { ExecutionEventType, ExecutionStatus, StepRunStatus } from '@aap/shared';
+import type {
+  ApprovalStatus,
+  ExecutionEventType,
+  ExecutionStatus,
+  StepRunStatus,
+} from '@aap/shared';
 import type { JsonValue } from '../contracts/json.js';
 
 export interface ErrorInfo {
@@ -46,6 +51,18 @@ export interface ExecutionEventRecord {
   createdAt: Date;
 }
 
+export interface ApprovalRecord {
+  id: string;
+  executionId: string;
+  state: string;
+  approvalType: string;
+  status: ApprovalStatus;
+  request: unknown;
+  decision: unknown;
+  createdAt: Date;
+  decidedAt: Date | null;
+}
+
 export interface NewExecution {
   id: string;
   workflowId: string;
@@ -88,6 +105,10 @@ export interface ExecutionChange {
     output?: JsonValue;
     error?: ErrorInfo;
   };
+  /** Opens a PENDING approval request. At most one can be pending per execution. */
+  requestApproval?: { id: string; state: string; approvalType: string; request: JsonValue };
+  /** Decides the pending request. Leaving WAITING_FOR_APPROVAL without one cancels it. */
+  decideApproval?: { id: string; status: 'APPROVED' | 'REJECTED'; decision: JsonValue };
   events?: readonly NewExecutionEvent[];
 }
 
@@ -115,6 +136,10 @@ export interface ExecutionStore {
   countByStatus(): Record<ExecutionStatus, number>;
   /** Terminal executions, most recently completed first. */
   listRecentlyFinished(limit: number): ExecutionSummaryRecord[];
+  getApproval(id: string): ApprovalRecord | undefined;
+  getPendingApproval(executionId: string): ApprovalRecord | undefined;
+  /** Oldest first. */
+  listApprovals(executionId: string): ApprovalRecord[];
 }
 
 export interface ExecutionFilter {

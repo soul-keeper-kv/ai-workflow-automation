@@ -5,7 +5,8 @@ import { InvalidStatusTransitionError } from '../contracts/errors.js';
 const ALLOWED_TRANSITIONS: Readonly<Record<ExecutionStatus, readonly ExecutionStatus[]>> = {
   PENDING: ['RUNNING', 'CANCELLED', 'FAILED', 'INTERRUPTED'],
   RUNNING: ['WAITING_FOR_APPROVAL', 'COMPLETED', 'FAILED', 'CANCELLED', 'INTERRUPTED'],
-  WAITING_FOR_APPROVAL: ['RUNNING', 'CANCELLED', 'FAILED', 'INTERRUPTED'],
+  // COMPLETED: an approval can lead straight to a final state.
+  WAITING_FOR_APPROVAL: ['RUNNING', 'COMPLETED', 'CANCELLED', 'FAILED', 'INTERRUPTED'],
   INTERRUPTED: ['RUNNING', 'CANCELLED', 'FAILED'],
   COMPLETED: [],
   FAILED: [],

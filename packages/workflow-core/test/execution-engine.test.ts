@@ -180,7 +180,7 @@ describe('restart and recovery', () => {
     first.database.close();
 
     const second = harness([createSequenceWorkflow()]);
-    expect(second.engine.recover()).toEqual({ resumed: [], interrupted: [] });
+    expect(second.engine.recover()).toEqual({ resumed: [], rerun: [], interrupted: [] });
     expect(second.store.getExecution(id)).toMatchObject({
       status: 'COMPLETED',
       output: { label: 'a', trail: ['first', 'second'] },
@@ -209,7 +209,7 @@ describe('restart and recovery', () => {
       status: 'RUNNING',
       currentState: 'SECOND',
     });
-    expect(second.engine.recover()).toEqual({ resumed: [id], interrupted: [] });
+    expect(second.engine.recover()).toEqual({ resumed: [id], rerun: [], interrupted: [] });
     await second.engine.whenIdle();
 
     expect(second.store.getExecution(id)?.status).toBe('COMPLETED');
@@ -238,7 +238,7 @@ describe('restart and recovery', () => {
     first.database.close();
 
     const second = harness([createSequenceWorkflow()]);
-    expect(second.engine.recover()).toEqual({ resumed: [], interrupted: [] });
+    expect(second.engine.recover()).toEqual({ resumed: [], rerun: [], interrupted: [] });
     expect(second.store.getExecution(id)?.status).toBe('INTERRUPTED');
   });
 
@@ -255,7 +255,7 @@ describe('restart and recovery', () => {
     open.splice(open.indexOf(first), 1);
 
     const second = harness([createSequenceWorkflow({ FIRST: neverFinishes })]);
-    expect(second.engine.recover()).toEqual({ resumed: [], interrupted: [id] });
+    expect(second.engine.recover()).toEqual({ resumed: [], rerun: [], interrupted: [id] });
 
     expect(second.store.getExecution(id)).toMatchObject({
       status: 'INTERRUPTED',

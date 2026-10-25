@@ -46,7 +46,7 @@ export interface Harness {
 export function openHarness(
   path: string,
   workflows: readonly Workflow[],
-  options: { maxConcurrentExecutions?: number } = {},
+  options: { maxConcurrentExecutions?: number; abortGraceMs?: number } = {},
 ): Harness {
   const database = openWorkflowDatabase(path);
   const store = new SqliteExecutionStore(database.db);
@@ -57,6 +57,7 @@ export function openHarness(
     ...(options.maxConcurrentExecutions === undefined
       ? {}
       : { maxConcurrentExecutions: options.maxConcurrentExecutions }),
+    ...(options.abortGraceMs === undefined ? {} : { abortGraceMs: options.abortGraceMs }),
   });
   return { database, store, registry, engine };
 }

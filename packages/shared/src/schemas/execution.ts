@@ -39,6 +39,12 @@ export const EXECUTION_EVENT_TYPES = [
   'STEP_INTERRUPTED',
   'STATE_CHANGED',
   'CANCEL_REQUESTED',
+  'APPROVAL_REQUESTED',
+  'APPROVAL_DECIDED',
+  /** A retryable step failed; another attempt follows after a delay. */
+  'STEP_RETRY_SCHEDULED',
+  /** A person resumed an INTERRUPTED execution. */
+  'EXECUTION_RESUMED',
 ] as const;
 
 export const executionEventTypeSchema = z.enum(EXECUTION_EVENT_TYPES);
@@ -57,9 +63,10 @@ export const errorInfoSchema = z.object({ code: z.string(), message: z.string() 
 
 export const workflowStateSchema = z.object({
   name: z.string(),
-  kind: z.enum(['step', 'final']),
+  kind: z.enum(['step', 'approval', 'final']),
   title: z.string(),
   finalStatus: executionStatusSchema.nullable(),
+  approvalType: z.string().nullable(),
 });
 
 export type WorkflowStateDto = z.infer<typeof workflowStateSchema>;
@@ -99,12 +106,41 @@ export const stepRunSchema = z.object({
 
 export type StepRun = z.infer<typeof stepRunSchema>;
 
+export const APPROVAL_STATUSES = ['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'] as const;
+export const approvalStatusSchema = z.enum(APPROVAL_STATUSES);
+export type ApprovalStatus = z.infer<typeof approvalStatusSchema>;
+
+export const approvalDecisionSchema = z.enum(['APPROVED', 'REJECTED']);
+export type ApprovalDecisionValue = z.infer<typeof approvalDecisionSchema>;
+
+export const approvalSchema = z.object({
+  id: z.string(),
+  approvalType: z.string(),
+  /** The approval state of the workflow machine. */
+  state: z.string(),
+  stateTitle: z.string(),
+  status: approvalStatusSchema,
+  /** What the workflow asks the reviewer to look at. Untrusted JSON: render, never execute. */
+  request: z.unknown(),
+  decision: z
+    .object({ decision: approvalDecisionSchema, feedback: z.string().nullable() })
+    .nullable(),
+  createdAt: timestamp,
+  decidedAt: timestamp.nullable(),
+});
+
+export type Approval = z.infer<typeof approvalSchema>;
+
 export const executionDetailSchema = executionSummarySchema.extend({
   input: z.unknown(),
   output: z.unknown(),
   /** All states of the workflow, in definition order, for progress display. */
   states: z.array(workflowStateSchema),
   steps: z.array(stepRunSchema),
+  /** Every approval request of the execution, oldest first. */
+  approvals: z.array(approvalSchema),
+  /** The request the execution is waiting on, if any. */
+  pendingApproval: approvalSchema.nullable(),
 });
 
 export type ExecutionDetail = z.infer<typeof executionDetailSchema>;
@@ -123,6 +159,18 @@ export type ExecutionEvent = z.infer<typeof executionEventSchema>;
 // Requests and responses
 
 export const executionIdParamsSchema = z.object({ executionId: executionIdSchema });
+
+export const approvalParamsSchema = z.object({
+  executionId: executionIdSchema,
+  approvalId: z.uuid(),
+});
+
+export const decideApprovalRequestSchema = z.object({
+  decision: approvalDecisionSchema,
+  feedback: z.string().trim().max(4000).optional(),
+});
+
+export type DecideApprovalRequest = z.infer<typeof decideApprovalRequestSchema>;
 
 export const startExecutionRequestSchema = z.object({
   workflowId: workflowIdSchema,

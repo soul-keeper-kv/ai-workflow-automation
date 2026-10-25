@@ -1,4 +1,9 @@
-import { EXECUTION_EVENT_TYPES, EXECUTION_STATUSES, STEP_RUN_STATUSES } from '@aap/shared';
+import {
+  APPROVAL_STATUSES,
+  EXECUTION_EVENT_TYPES,
+  EXECUTION_STATUSES,
+  STEP_RUN_STATUSES,
+} from '@aap/shared';
 import { sql } from 'drizzle-orm';
 import { check, index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
@@ -90,4 +95,36 @@ export const workflowEvents = sqliteTable(
   ],
 );
 
-export const schema = { workflowExecutions, workflowStepExecutions, workflowEvents };
+export const workflowApprovals = sqliteTable(
+  'workflow_approvals',
+  {
+    id: text('id').primaryKey(),
+    executionId: text('execution_id')
+      .notNull()
+      .references(() => workflowExecutions.id, { onDelete: 'cascade' }),
+    /** The approval state of the machine that asked for it. */
+    state: text('state').notNull(),
+    approvalType: text('approval_type').notNull(),
+    status: text('status', { enum: APPROVAL_STATUSES }).notNull(),
+    requestPayloadJson: text('request_payload_json').notNull(),
+    decisionPayloadJson: text('decision_payload_json'),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    decidedAt: integer('decided_at', { mode: 'timestamp_ms' }),
+  },
+  (t) => [
+    index('workflow_approvals_execution_idx').on(t.executionId, t.createdAt),
+    index('workflow_approvals_status_idx').on(t.status),
+    // An execution waits on at most one request at a time.
+    uniqueIndex('workflow_approvals_one_pending_idx')
+      .on(t.executionId)
+      .where(sql`${t.status} = 'PENDING'`),
+    check('workflow_approvals_status_check', sql`${t.status} in (${inList(APPROVAL_STATUSES)})`),
+  ],
+);
+
+export const schema = {
+  workflowExecutions,
+  workflowStepExecutions,
+  workflowEvents,
+  workflowApprovals,
+};

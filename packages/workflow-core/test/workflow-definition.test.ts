@@ -167,6 +167,7 @@ describe('Workflow.runStep', () => {
       stateAfter: 'SECOND',
       context: { label: 'x', trail: ['first'] },
       final: null,
+      approval: null,
     });
   });
 

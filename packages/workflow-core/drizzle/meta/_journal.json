@@ -15,6 +15,13 @@
       "when": 1792950023583,
       "tag": "0001_drop_event_type_check",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1792951287661,
+      "tag": "0002_add_approvals",
+      "breakpoints": true
     }
   ]
 }

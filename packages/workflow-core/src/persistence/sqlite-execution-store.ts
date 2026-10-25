@@ -8,6 +8,7 @@ import { and, asc, count, desc, eq, gt, inArray, sql } from 'drizzle-orm';
 import {
   ConcurrentModificationError,
   CorruptRecordError,
+  ExecutionConflictError,
   ExecutionNotFoundError,
   PayloadTooLargeError,
 } from '../contracts/errors.js';
@@ -15,6 +16,7 @@ import type { JsonValue } from '../contracts/json.js';
 import { assertStatusTransition, isTerminalStatus } from '../execution/status.js';
 import type { WorkflowDb } from './database.js';
 import type {
+  ApprovalRecord,
   ErrorInfo,
   ExecutionChange,
   ExecutionEventRecord,
@@ -25,7 +27,12 @@ import type {
   NewExecution,
   StepRunRecord,
 } from './execution-store.js';
-import { workflowEvents, workflowExecutions, workflowStepExecutions } from './schema.js';
+import {
+  workflowApprovals,
+  workflowEvents,
+  workflowExecutions,
+  workflowStepExecutions,
+} from './schema.js';
 
 const SUMMARY_COLUMNS = {
   id: workflowExecutions.id,
@@ -57,6 +64,7 @@ export const DEFAULT_STORAGE_LIMITS: StorageLimits = {
 
 type ExecutionRow = typeof workflowExecutions.$inferSelect;
 type StepRunRow = typeof workflowStepExecutions.$inferSelect;
+type ApprovalRow = typeof workflowApprovals.$inferSelect;
 type EventRow = typeof workflowEvents.$inferSelect;
 type EventInsert = typeof workflowEvents.$inferInsert;
 type SummaryRow = Pick<ExecutionRow, keyof typeof SUMMARY_COLUMNS>;
@@ -244,6 +252,68 @@ export class SqliteExecutionStore implements ExecutionStore {
           }
         }
 
+        const decide = change.decideApproval;
+        if (decide !== undefined) {
+          const decided = tx
+            .update(workflowApprovals)
+            .set({
+              status: decide.status,
+              decisionPayloadJson: this.#serialize(
+                decide.decision,
+                'approval decision',
+                this.#limits.eventPayloadBytes,
+              ),
+              decidedAt: at,
+            })
+            .where(
+              and(
+                eq(workflowApprovals.id, decide.id),
+                eq(workflowApprovals.executionId, change.executionId),
+                eq(workflowApprovals.status, 'PENDING'),
+              ),
+            )
+            .run();
+          if (decided.changes !== 1) {
+            throw new ExecutionConflictError(
+              change.executionId,
+              `Approval ${decide.id} is not pending for this execution.`,
+            );
+          }
+        } else if (
+          current.status === 'WAITING_FOR_APPROVAL' &&
+          status !== undefined &&
+          status !== 'WAITING_FOR_APPROVAL'
+        ) {
+          // Leaving the wait without a decision (cancel, failure): close the open request.
+          tx.update(workflowApprovals)
+            .set({ status: 'CANCELLED', decidedAt: at })
+            .where(
+              and(
+                eq(workflowApprovals.executionId, change.executionId),
+                eq(workflowApprovals.status, 'PENDING'),
+              ),
+            )
+            .run();
+        }
+
+        if (change.requestApproval !== undefined) {
+          tx.insert(workflowApprovals)
+            .values({
+              id: change.requestApproval.id,
+              executionId: change.executionId,
+              state: change.requestApproval.state,
+              approvalType: change.requestApproval.approvalType,
+              status: 'PENDING',
+              requestPayloadJson: this.#serialize(
+                change.requestApproval.request,
+                'approval request',
+                this.#limits.jsonBytes,
+              ),
+              createdAt: at,
+            })
+            .run();
+        }
+
         if (events.length > 0) tx.insert(workflowEvents).values(events).run();
 
         const row = tx
@@ -369,6 +439,50 @@ export class SqliteExecutionStore implements ExecutionStore {
       .all();
     for (const row of rows) counts[row.status] = row.n;
     return counts;
+  }
+
+  getApproval(id: string): ApprovalRecord | undefined {
+    const row = this.#db.select().from(workflowApprovals).where(eq(workflowApprovals.id, id)).get();
+    return row === undefined ? undefined : this.#toApproval(row);
+  }
+
+  getPendingApproval(executionId: string): ApprovalRecord | undefined {
+    const row = this.#db
+      .select()
+      .from(workflowApprovals)
+      .where(
+        and(
+          eq(workflowApprovals.executionId, executionId),
+          eq(workflowApprovals.status, 'PENDING'),
+        ),
+      )
+      .get();
+    return row === undefined ? undefined : this.#toApproval(row);
+  }
+
+  listApprovals(executionId: string): ApprovalRecord[] {
+    return this.#db
+      .select()
+      .from(workflowApprovals)
+      .where(eq(workflowApprovals.executionId, executionId))
+      .orderBy(asc(workflowApprovals.createdAt), sql`rowid`)
+      .all()
+      .map((row) => this.#toApproval(row));
+  }
+
+  #toApproval(row: ApprovalRow): ApprovalRecord {
+    const owner = `approval ${row.id}`;
+    return {
+      id: row.id,
+      executionId: row.executionId,
+      state: row.state,
+      approvalType: row.approvalType,
+      status: row.status,
+      request: this.#parse(row.requestPayloadJson, 'request', owner),
+      decision: this.#parse(row.decisionPayloadJson, 'decision', owner),
+      createdAt: row.createdAt,
+      decidedAt: row.decidedAt,
+    };
   }
 
   listRecentlyFinished(limit: number): ExecutionSummaryRecord[] {

@@ -20,6 +20,12 @@ import type { Logger } from './logger.js';
 
 export type FinalStatus = Extract<ExecutionStatus, 'COMPLETED' | 'CANCELLED' | 'FAILED'>;
 
+/** The events the engine sends to an approval state. Include them in your machine's events. */
+export type ApprovalDecisionEvent =
+  { type: 'APPROVED'; feedback: string | null } | { type: 'REJECTED'; feedback: string | null };
+
+export type ApprovalDecision = ApprovalDecisionEvent['type'];
+
 export interface StepRunContext<TContext> {
   readonly executionId: string;
   /** Name of the machine state this step belongs to. */
@@ -27,12 +33,45 @@ export interface StepRunContext<TContext> {
   /** 1 on the first run of this step in this execution. */
   readonly attempt: number;
   readonly context: TContext;
-  /** Aborted when the app shuts down. Long-running steps must honour it. */
+  /**
+   * Aborted on shutdown, cancellation or timeout (see `signal.reason`). Long-running steps
+   * must honour it, and must stop child processes they started.
+   */
   readonly signal: AbortSignal;
   readonly log: Logger;
 }
 
-export interface StepStateDefinition<TContext, TEvent> {
+/**
+ * Bounded retries. Only errors that say they are retryable are retried: a StepError created
+ * with `retryable: true`, or a timeout when `retryOnTimeout` is set. Validation, contract and
+ * permission errors are never retried.
+ */
+export interface RetryPolicy {
+  /** Total attempts, including the first. 1 means no retry. */
+  maxAttempts: number;
+  /** Delay before the first retry; each further retry multiplies it. */
+  initialDelayMs: number;
+  multiplier?: number;
+  maxDelayMs?: number;
+  retryOnTimeout?: boolean;
+}
+
+/**
+ * What to do when the app restarts and finds this step was running.
+ * - `manual` (default): the step may have had side effects; the execution is INTERRUPTED
+ *   and a person decides.
+ * - `rerun`: the step is safe to repeat (no side effects, or idempotent), so it runs again.
+ */
+export type RecoveryPolicy = 'manual' | 'rerun';
+
+export interface StepPolicy {
+  /** The step is aborted after this long. */
+  timeoutMs?: number;
+  retry?: RetryPolicy;
+  recovery?: RecoveryPolicy;
+}
+
+export interface StepStateDefinition<TContext, TEvent> extends StepPolicy {
   readonly kind: 'step';
   readonly title: string;
   /**
@@ -46,6 +85,19 @@ export interface StepStateDefinition<TContext, TEvent> {
   run(step: StepRunContext<TContext>): Promise<TEvent>;
 }
 
+/**
+ * The execution waits here for a person. The machine state must handle both APPROVED and
+ * REJECTED (ApprovalDecisionEvent); the engine sends one of them when the decision arrives.
+ */
+export interface ApprovalStateDefinition<TContext> {
+  readonly kind: 'approval';
+  readonly title: string;
+  /** Stable name for the kind of review, e.g. `spec-review`. */
+  readonly approvalType: string;
+  /** What the reviewer is shown. Must be JSON; keep large artifacts in files and link them. */
+  request(context: TContext): unknown;
+}
+
 export interface FinalStateDefinition {
   readonly kind: 'final';
   readonly title: string;
@@ -54,7 +106,7 @@ export interface FinalStateDefinition {
 }
 
 export type StateDefinition<TContext, TEvent> =
-  StepStateDefinition<TContext, TEvent> | FinalStateDefinition;
+  StepStateDefinition<TContext, TEvent> | ApprovalStateDefinition<TContext> | FinalStateDefinition;
 
 /**
  * What a workflow author writes. Rules, checked by `defineWorkflow`:
@@ -78,16 +130,27 @@ export interface WorkflowSpec<TMachine extends AnyStateMachine> {
   /** Validates the context every time it is persisted and every time it is read back. */
   contextSchema: z.ZodType<ContextFrom<TMachine>>;
   outputSchema: z.ZodType<OutputFrom<TMachine>>;
+  /** Defaults for every step; a step's own settings win. */
+  policy?: StepPolicy;
   states: Readonly<
     Record<string, StateDefinition<ContextFrom<TMachine>, EventFromLogic<TMachine>>>
   >;
 }
 
+export type StateKind = StateDefinition<unknown, unknown>['kind'];
+
 export interface StateInfo {
   readonly name: string;
-  readonly kind: 'step' | 'final';
+  readonly kind: StateKind;
   readonly title: string;
   readonly finalStatus: FinalStatus | null;
+  readonly approvalType: string | null;
+}
+
+export interface ResolvedStepPolicy {
+  readonly timeoutMs: number | null;
+  readonly retry: Required<RetryPolicy>;
+  readonly recovery: RecoveryPolicy;
 }
 
 export interface PreparedExecution {
@@ -106,14 +169,24 @@ export interface RunStepRequest {
   readonly log: Logger;
 }
 
-export interface StepOutcome {
-  /** The event the step returned, as it will be persisted. */
+export interface DecideRequest {
+  readonly state: string;
+  readonly context: unknown;
+  readonly decision: ApprovalDecision;
+  readonly feedback: string | null;
+}
+
+/** The result of sending one event to the machine. */
+export interface TransitionOutcome {
+  /** The event, as it will be persisted. */
   readonly event: JsonObject;
   readonly eventType: string;
   readonly stateAfter: string;
   readonly context: JsonValue;
   /** Set when `stateAfter` is a final state. */
   readonly final: { readonly status: FinalStatus; readonly output: JsonValue | null } | null;
+  /** Set when `stateAfter` is an approval state: the request to create. */
+  readonly approval: { readonly approvalType: string; readonly request: JsonValue } | null;
 }
 
 /**
@@ -131,18 +204,46 @@ export interface Workflow {
   readonly initialState: string;
   readonly states: readonly StateInfo[];
   getState(name: string): StateInfo | undefined;
+  /** Timeout, retry and recovery for a step state, with defaults applied. */
+  stepPolicy(state: string): ResolvedStepPolicy;
   /** Validates raw input and computes the initial state and context. */
   prepare(rawInput: unknown): PreparedExecution;
   /** Runs the step for `state`, then computes the transition its event causes. */
-  runStep(request: RunStepRequest): Promise<StepOutcome>;
+  runStep(request: RunStepRequest): Promise<TransitionOutcome>;
+  /** Applies an approval decision to the approval state `state`. */
+  decide(request: DecideRequest): TransitionOutcome;
 }
 
 const WORKFLOW_ID_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 const SEMVER_PATTERN = /^\d+\.\d+\.\d+$/;
 const STATE_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_]*$/;
 const MAX_NAME_LENGTH = 64;
+const APPROVAL_EVENTS: readonly ApprovalDecision[] = ['APPROVED', 'REJECTED'];
+
+const NO_RETRY: Required<RetryPolicy> = {
+  maxAttempts: 1,
+  initialDelayMs: 0,
+  multiplier: 2,
+  maxDelayMs: 60_000,
+  retryOnTimeout: false,
+};
 
 const eventSchema = z.looseObject({ type: z.string().min(1) });
+
+function validatePolicy(where: string, policy: StepPolicy | undefined): void {
+  if (policy === undefined) return;
+  const fail = (message: string) => new WorkflowDefinitionError(`${where}: ${message}`);
+  if (policy.timeoutMs !== undefined && !(policy.timeoutMs > 0)) {
+    throw fail('timeoutMs must be positive.');
+  }
+  const retry = policy.retry;
+  if (retry !== undefined) {
+    if (!Number.isInteger(retry.maxAttempts) || retry.maxAttempts < 1 || retry.maxAttempts > 10) {
+      throw fail('retry.maxAttempts must be an integer from 1 to 10.');
+    }
+    if (retry.initialDelayMs < 0) throw fail('retry.initialDelayMs must not be negative.');
+  }
+}
 
 function describeStates<TMachine extends AnyStateMachine>(
   spec: WorkflowSpec<TMachine>,
@@ -161,6 +262,7 @@ function describeStates<TMachine extends AnyStateMachine>(
   if (spec.name.trim() === '') throw problem('name is empty.');
   if (spec.description.trim() === '') throw problem('description is empty.');
   if (spec.category.trim() === '') throw problem('category is empty.');
+  validatePolicy(`[${spec.id}] policy`, spec.policy);
 
   const root = spec.machine.root;
   if (root.type !== 'compound') throw problem('the machine must have top-level states.');
@@ -188,11 +290,25 @@ function describeStates<TMachine extends AnyStateMachine>(
         `state "${name}" is ${node.type} in the machine but "${definition.kind}" in states.`,
       );
     }
+    if (definition.kind === 'approval') {
+      if (definition.approvalType.trim() === '') {
+        throw problem(`approval state "${name}" has an empty approvalType.`);
+      }
+      const handled = node.ownEvents;
+      for (const event of APPROVAL_EVENTS) {
+        if (!handled.includes(event)) {
+          throw problem(`approval state "${name}" must handle the ${event} event.`);
+        }
+      }
+    }
+    if (definition.kind === 'step') validatePolicy(`[${spec.id}] state "${name}"`, definition);
+
     states.push({
       name,
       kind: definition.kind,
       title: definition.title,
       finalStatus: definition.kind === 'final' ? definition.status : null,
+      approvalType: definition.kind === 'approval' ? definition.approvalType : null,
     });
   }
 
@@ -202,8 +318,9 @@ function describeStates<TMachine extends AnyStateMachine>(
 
   const initial: unknown = spec.machine.config.initial;
   if (typeof initial !== 'string') throw problem('the machine must name its initial state.');
-  if (spec.states[initial]?.kind !== 'step')
+  if (spec.states[initial]?.kind !== 'step') {
     throw problem(`initial state "${initial}" must be a step.`);
+  }
 
   return { states, initialState: initial };
 }
@@ -212,13 +329,13 @@ export function defineWorkflow<TMachine extends AnyStateMachine>(
   spec: WorkflowSpec<TMachine>,
 ): Workflow {
   const { states, initialState } = describeStates(spec);
+  const byName = new Map(states.map((state) => [state.name, state]));
   // `unrepresentable: 'any'` keeps definition working for types JSON Schema cannot express;
   // the server validates with the Zod schema either way.
   const inputJsonSchema = z.toJSONSchema(spec.inputSchema, {
     io: 'input',
     unrepresentable: 'any',
   }) as JsonObject;
-  const byName = new Map(states.map((state) => [state.name, state]));
   // From here on the machine is handled through its erased type. Everything coming out of it
   // is validated with the workflow's own schemas before it is used or stored.
   const machine: AnyStateMachine = spec.machine;
@@ -243,6 +360,83 @@ export function defineWorkflow<TMachine extends AnyStateMachine>(
       : fail(ENGINE_ERROR_CODES.invalidContext, `context ${when} is invalid: ${result.message}`);
   };
 
+  const readContext = (value: unknown) => {
+    const context = spec.contextSchema.safeParse(value);
+    return context.success
+      ? context.data
+      : fail(
+          ENGINE_ERROR_CODES.invalidContext,
+          `stored context is invalid: ${context.error.message}`,
+        );
+  };
+
+  /** Sends one event to the machine in `state` and validates everything that comes out. */
+  const applyEvent = (state: string, context: unknown, raw: unknown): TransitionOutcome => {
+    // Transition on the JSON copy, so the result depends only on what gets persisted.
+    const event = jsonRoundTrip(eventSchema, raw);
+    if (!event.success) {
+      return fail(
+        ENGINE_ERROR_CODES.invalidTransition,
+        `invalid event in "${state}": ${event.message}`,
+      );
+    }
+
+    const snapshot = machine.resolveState({ value: state, context });
+    if (!snapshot.can(event.data)) {
+      return fail(
+        ENGINE_ERROR_CODES.invalidTransition,
+        `state "${state}" does not accept event "${event.data.type}".`,
+      );
+    }
+
+    const [next, actions] = transition(machine, snapshot, event.data);
+    assertPure(actions);
+
+    const stateAfter: unknown = next.value;
+    const after = typeof stateAfter === 'string' ? byName.get(stateAfter) : undefined;
+    if (after === undefined) {
+      return fail(
+        ENGINE_ERROR_CODES.invalidState,
+        `transition led to ${JSON.stringify(stateAfter)}.`,
+      );
+    }
+
+    const nextContext = validContext(next.context, `after ${event.data.type}`);
+
+    let final: TransitionOutcome['final'] = null;
+    if (after.finalStatus === 'COMPLETED') {
+      const output = jsonRoundTrip(spec.outputSchema, next.output);
+      if (!output.success) {
+        return fail(ENGINE_ERROR_CODES.invalidOutput, `output is invalid: ${output.message}`);
+      }
+      final = { status: 'COMPLETED', output: output.json };
+    } else if (after.finalStatus !== null) {
+      final = { status: after.finalStatus, output: null };
+    }
+
+    let approval: TransitionOutcome['approval'] = null;
+    const afterDefinition = spec.states[after.name];
+    if (afterDefinition?.kind === 'approval') {
+      const request = jsonRoundTrip(z.unknown(), afterDefinition.request(readContext(nextContext)));
+      if (!request.success) {
+        return fail(
+          ENGINE_ERROR_CODES.invalidContext,
+          `approval request for "${after.name}" is not JSON: ${request.message}`,
+        );
+      }
+      approval = { approvalType: afterDefinition.approvalType, request: request.json };
+    }
+
+    return {
+      event: event.json as JsonObject,
+      eventType: event.data.type,
+      stateAfter: after.name,
+      context: nextContext,
+      final,
+      approval,
+    };
+  };
+
   return {
     id: spec.id,
     version: spec.version,
@@ -253,6 +447,17 @@ export function defineWorkflow<TMachine extends AnyStateMachine>(
     initialState,
     states,
     getState: (name) => byName.get(name),
+
+    stepPolicy(state) {
+      const definition = spec.states[state];
+      const own: StepPolicy = definition?.kind === 'step' ? definition : {};
+      const defaults: StepPolicy = spec.policy ?? {};
+      return {
+        timeoutMs: own.timeoutMs ?? defaults.timeoutMs ?? null,
+        retry: { ...NO_RETRY, ...(own.retry ?? defaults.retry) },
+        recovery: own.recovery ?? defaults.recovery ?? 'manual',
+      };
+    },
 
     prepare(rawInput) {
       const parsed = spec.inputSchema.safeParse(rawInput);
@@ -285,71 +490,27 @@ export function defineWorkflow<TMachine extends AnyStateMachine>(
       if (definition?.kind !== 'step') {
         return fail(ENGINE_ERROR_CODES.invalidState, `"${request.state}" is not a step state.`);
       }
-
-      const context = spec.contextSchema.safeParse(request.context);
-      if (!context.success) {
-        return fail(
-          ENGINE_ERROR_CODES.invalidContext,
-          `stored context is invalid: ${context.error.message}`,
-        );
-      }
-
+      const context = readContext(request.context);
       const returned = await definition.run({
         executionId: request.executionId,
         stepId: request.state,
         attempt: request.attempt,
-        context: context.data,
+        context,
         signal: request.signal,
         log: request.log,
       });
+      return applyEvent(request.state, context, returned);
+    },
 
-      // Transition on the JSON copy, so the result depends only on what gets persisted.
-      const event = jsonRoundTrip(eventSchema, returned);
-      if (!event.success) {
-        return fail(
-          ENGINE_ERROR_CODES.invalidTransition,
-          `step "${request.state}" returned an invalid event: ${event.message}`,
-        );
-      }
-
-      const snapshot = machine.resolveState({ value: request.state, context: context.data });
-      if (!snapshot.can(event.data)) {
-        return fail(
-          ENGINE_ERROR_CODES.invalidTransition,
-          `state "${request.state}" does not accept event "${event.data.type}".`,
-        );
-      }
-
-      const [next, actions] = transition(machine, snapshot, event.data);
-      assertPure(actions);
-
-      const stateAfter: unknown = next.value;
-      const after = typeof stateAfter === 'string' ? byName.get(stateAfter) : undefined;
-      if (after === undefined) {
+    decide(request) {
+      if (spec.states[request.state]?.kind !== 'approval') {
         return fail(
           ENGINE_ERROR_CODES.invalidState,
-          `transition led to ${JSON.stringify(stateAfter)}.`,
+          `"${request.state}" is not an approval state.`,
         );
       }
-
-      let final: StepOutcome['final'] = null;
-      if (after.finalStatus === 'COMPLETED') {
-        const output = jsonRoundTrip(spec.outputSchema, next.output);
-        if (!output.success) {
-          return fail(ENGINE_ERROR_CODES.invalidOutput, `output is invalid: ${output.message}`);
-        }
-        final = { status: 'COMPLETED', output: output.json };
-      } else if (after.finalStatus !== null) {
-        final = { status: after.finalStatus, output: null };
-      }
-
-      return {
-        event: event.json as JsonObject,
-        eventType: event.data.type,
-        stateAfter: after.name,
-        context: validContext(next.context, `after ${event.data.type}`),
-        final,
-      };
+      const event: ApprovalDecisionEvent = { type: request.decision, feedback: request.feedback };
+      return applyEvent(request.state, readContext(request.context), event);
     },
   };
 }

@@ -19,6 +19,7 @@ export const ENGINE_ERROR_CODES = {
   interrupted: 'INTERRUPTED',
   /** The user cancelled while the step was running. */
   cancelled: 'CANCELLED',
+  stepTimeout: 'STEP_TIMEOUT',
 } as const;
 
 export class WorkflowEngineError extends Error {
@@ -36,9 +37,30 @@ export class WorkflowEngineError extends Error {
 /** Thrown by workflow steps to fail with a specific, stable code. */
 export class StepError extends WorkflowEngineError {
   override readonly name = 'StepError';
+  /** Only retryable errors are retried, and only when the step has a retry policy. */
+  readonly retryable: boolean;
 
-  constructor(message: string, options?: ErrorOptions & { code?: string }) {
+  constructor(message: string, options?: ErrorOptions & { code?: string; retryable?: boolean }) {
     super(options?.code ?? ENGINE_ERROR_CODES.stepFailed, message, options);
+    this.retryable = options?.retryable ?? false;
+  }
+}
+
+/** The abort reason when a step exceeds its timeout. */
+export class StepTimeoutError extends WorkflowEngineError {
+  override readonly name = 'StepTimeoutError';
+
+  constructor(
+    readonly timeoutMs: number,
+    /** False when the step ignored the abort and may still be running. */
+    readonly stopped: boolean,
+  ) {
+    super(
+      ENGINE_ERROR_CODES.stepTimeout,
+      stopped
+        ? `The step did not finish within ${timeoutMs} ms.`
+        : `The step did not finish within ${timeoutMs} ms and did not stop when asked; it may still be running.`,
+    );
   }
 }
 
@@ -130,5 +152,16 @@ export class ExecutionConflictError extends Error {
     message: string,
   ) {
     super(message);
+  }
+}
+
+export class ApprovalNotFoundError extends Error {
+  override readonly name = 'ApprovalNotFoundError';
+
+  constructor(
+    readonly executionId: string,
+    readonly approvalId: string,
+  ) {
+    super(`Approval "${approvalId}" does not exist for execution "${executionId}".`);
   }
 }
