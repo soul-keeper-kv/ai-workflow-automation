@@ -45,7 +45,11 @@ export function Dashboard() {
                 const value =
                   tile.status === null ? stats.data.total : stats.data.byStatus[tile.status];
                 const href =
-                  tile.status === null ? '/executions' : `/executions?status=${tile.status}`;
+                  tile.status === null
+                    ? '/executions'
+                    : tile.status === 'WAITING_FOR_APPROVAL'
+                      ? '/approvals'
+                      : `/executions?status=${tile.status}`;
                 return (
                   <Link key={tile.label} href={href} className="rounded-xl focus-visible:outline-2">
                     <Card className="h-full transition-colors hover:bg-muted/40">

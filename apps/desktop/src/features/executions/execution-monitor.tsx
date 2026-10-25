@@ -24,6 +24,8 @@ import { useCancelExecution, useExecution, useExecutionEvents } from '@/hooks/us
 import { useNow } from '@/hooks/use-now';
 import { isFinished, isLive } from '@/lib/execution-status';
 import { elapsedMs, formatDateTime, formatDuration } from '@/lib/format';
+import { ApprovalHistory, ApprovalPanel } from './approval-panel';
+import { ResumePanel } from './resume-panel';
 import { StepTimeline } from './step-timeline';
 
 const RECENT_EVENTS = 25;
@@ -109,7 +111,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 function Monitor({ execution }: { execution: ExecutionDetail }) {
   const live = isLive(execution.status);
   const now = useNow(1_000, live);
-  const events = useExecutionEvents(execution.id, live);
+  const events = useExecutionEvents(execution.id, live, execution.updatedAt);
   const recent = (events.data?.events ?? []).slice(-RECENT_EVENTS).reverse();
 
   return (
@@ -140,6 +142,12 @@ function Monitor({ execution }: { execution: ExecutionDetail }) {
           <AlertDescription>{execution.error.message}</AlertDescription>
         </Alert>
       )}
+
+      {execution.status === 'INTERRUPTED' ? <ResumePanel execution={execution} /> : null}
+
+      {execution.status === 'WAITING_FOR_APPROVAL' && execution.pendingApproval !== null ? (
+        <ApprovalPanel execution={execution} approval={execution.pendingApproval} />
+      ) : null}
 
       <dl className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <Field label="Current step">{execution.currentStateTitle}</Field>
@@ -204,6 +212,8 @@ function Monitor({ execution }: { execution: ExecutionDetail }) {
           </CardContent>
         </Card>
       </div>
+
+      <ApprovalHistory approvals={execution.approvals} />
 
       {execution.output === null ? null : (
         <Card>

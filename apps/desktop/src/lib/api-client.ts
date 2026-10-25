@@ -148,6 +148,26 @@ export const api = {
       query: { limit: 500 },
     }),
 
+  decideApproval: (
+    executionId: string,
+    approvalId: string,
+    decision: 'APPROVED' | 'REJECTED',
+    feedback: string,
+  ) =>
+    request(
+      `/api/executions/${encodeURIComponent(executionId)}/approvals/${encodeURIComponent(approvalId)}/decision`,
+      executionResponseSchema,
+      {
+        method: 'POST',
+        body: feedback.trim() === '' ? { decision } : { decision, feedback },
+      },
+    ),
+
+  resumeExecution: (executionId: string) =>
+    request(`/api/executions/${encodeURIComponent(executionId)}/resume`, executionResponseSchema, {
+      method: 'POST',
+    }),
+
   cancelExecution: (executionId: string) =>
     request(
       `/api/executions/${encodeURIComponent(executionId)}/cancel`,

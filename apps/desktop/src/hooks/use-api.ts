@@ -63,12 +63,18 @@ export function useExecution(id: string | null) {
   });
 }
 
-export function useExecutionEvents(id: string | null, live: boolean) {
+/**
+ * Events of one execution. `version` (the execution's updatedAt) is part of the key, so the
+ * list refetches whenever the execution changes, including the last change before it stops
+ * being live.
+ */
+export function useExecutionEvents(id: string | null, live: boolean, version: string) {
   return useQuery({
-    queryKey: queryKeys.events(id ?? ''),
+    queryKey: [...queryKeys.events(id ?? ''), version],
     queryFn: ({ signal }) => api.listEvents(id ?? '', signal),
     enabled: id !== null,
     refetchInterval: live ? LIVE_POLL_MS : false,
+    placeholderData: (previous) => previous,
   });
 }
 
@@ -89,6 +95,33 @@ export function useCancelExecution() {
       client.setQueryData(queryKeys.execution(result.execution.id), {
         execution: result.execution,
       });
+      return client.invalidateQueries({ queryKey: ['executions'] });
+    },
+  });
+}
+
+export function useDecideApproval() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (args: {
+      executionId: string;
+      approvalId: string;
+      decision: 'APPROVED' | 'REJECTED';
+      feedback: string;
+    }) => api.decideApproval(args.executionId, args.approvalId, args.decision, args.feedback),
+    onSuccess: ({ execution }) => {
+      client.setQueryData(queryKeys.execution(execution.id), { execution });
+      return client.invalidateQueries({ queryKey: ['executions'] });
+    },
+  });
+}
+
+export function useResumeExecution() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (executionId: string) => api.resumeExecution(executionId),
+    onSuccess: ({ execution }) => {
+      client.setQueryData(queryKeys.execution(execution.id), { execution });
       return client.invalidateQueries({ queryKey: ['executions'] });
     },
   });

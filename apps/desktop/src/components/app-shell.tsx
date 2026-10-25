@@ -1,6 +1,6 @@
 'use client';
 
-import { History, LayoutDashboard, Workflow } from 'lucide-react';
+import { History, LayoutDashboard, UserCheck, Workflow } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
@@ -10,6 +10,7 @@ const NAV = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/workflows', label: 'Workflows', icon: Workflow },
   { href: '/executions', label: 'Executions', icon: History },
+  { href: '/approvals', label: 'Approvals', icon: UserCheck },
 ] as const;
 
 function isActive(pathname: string, href: string): boolean {
