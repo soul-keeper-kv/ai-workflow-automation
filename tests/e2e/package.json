@@ -1,0 +1,16 @@
+{
+  "name": "@aap/e2e",
+  "version": "0.1.0",
+  "private": true,
+  "description": "End-to-end tests: the real UI against the real backend, with the offline fake agent.",
+  "type": "module",
+  "scripts": {
+    "test:e2e": "playwright test",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/node": "catalog:",
+    "typescript": "catalog:"
+  }
+}

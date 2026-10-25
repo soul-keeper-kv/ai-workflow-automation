@@ -1,6 +1,7 @@
 packages:
   - apps/*
   - packages/*
+  - tests/*
 
 # Dependency install scripts are blocked unless listed here (pnpm 11 default).
 # Both packages already ship prebuilt binaries, so their scripts are not needed:
