@@ -17,7 +17,8 @@ export interface Integrations {
 }
 
 function createCodingAgent(config: AppConfig): CodingAgent {
-  if (config.codingAgent.kind === 'fake') return new FakeCodingAgent({ delayMs: 1_500 });
+  if (config.codingAgent.kind === 'fake')
+    return new FakeCodingAgent({ delayMs: config.codingAgent.fakeDelayMs });
   return new ClaudeCodeAgent({
     ...(config.codingAgent.executable === undefined
       ? {}

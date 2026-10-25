@@ -1,6 +1,6 @@
 import cors from '@fastify/cors';
 import type { CodingAgent } from '@aap/integrations';
-import Fastify, { type FastifyServerOptions } from 'fastify';
+import Fastify, { LogController, type FastifyServerOptions } from 'fastify';
 import {
   serializerCompiler,
   validatorCompiler,
@@ -18,30 +18,72 @@ import { createIntegrations } from './workers/integrations.js';
 import { createRegisteredWorkflows } from './workers/registered-workflows.js';
 import { createWorkflowRuntime } from './workers/workflow-runtime.js';
 
-function loggerOptions(config: AppConfig): FastifyServerOptions['logger'] {
+/** Where JSON log lines go. Tests pass one to read the logs. */
+export interface LogDestination {
+  write(line: string): void;
+}
+
+function loggerOptions(
+  config: AppConfig,
+  destination: LogDestination | undefined,
+): FastifyServerOptions['logger'] {
   return {
     level: config.logLevel,
-    // Nothing logs headers today; this keeps a future auth header out of the logs by default.
-    redact: ['req.headers.authorization', 'req.headers.cookie'],
-    ...(config.logFormat === 'pretty'
-      ? {
-          transport: {
-            target: 'pino-pretty',
-            options: { translateTime: 'SYS:HH:MM:ss.l', ignore: 'pid,hostname' },
-          },
-        }
-      : {}),
+    // Defence in depth: nothing logs headers today, and these must never appear if one does.
+    redact: {
+      paths: ['req.headers.authorization', 'req.headers.cookie', '*.apiToken', '*.token'],
+      censor: '[redacted]',
+    },
+    ...(destination !== undefined
+      ? { stream: destination }
+      : config.logFormat === 'pretty'
+        ? {
+            transport: {
+              target: 'pino-pretty',
+              options: { translateTime: 'SYS:HH:MM:ss.l', ignore: 'pid,hostname' },
+            },
+          }
+        : {}),
   };
 }
 
 export interface BuildAppOptions {
   /** Replaces the configured coding agent. Tests use it to script answers. */
   codingAgent?: CodingAgent;
+  logDestination?: LogDestination;
 }
 
 /** Builds the app without listening, so tests can drive it with `app.inject()`. */
 export async function buildApp(config: AppConfig, options: BuildAppOptions = {}) {
-  const app = Fastify({ logger: loggerOptions(config) }).withTypeProvider<ZodTypeProvider>();
+  const app = Fastify({
+    logger: loggerOptions(config, options.logDestination),
+    // Replaced by the onResponse hook below: the UI polls every second, and logging every
+    // successful GET at info level would bury everything else.
+    logController: new LogController({ disableRequestLogging: true }),
+  }).withTypeProvider<ZodTypeProvider>();
+
+  app.addHook('onResponse', (request, reply, done) => {
+    const status = reply.statusCode;
+    const level =
+      status >= 500
+        ? 'error'
+        : status >= 400
+          ? 'warn'
+          : request.method === 'GET'
+            ? 'debug'
+            : 'info';
+    request.log[level](
+      {
+        method: request.method,
+        // The route pattern, not the raw URL: query strings never reach the logs.
+        route: request.routeOptions.url ?? '(unmatched)',
+        statusCode: status,
+        durationMs: Math.round(reply.elapsedTime),
+      },
+      'Request completed',
+    );
+    done();
+  });
 
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);

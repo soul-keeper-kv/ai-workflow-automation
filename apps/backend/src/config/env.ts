@@ -56,6 +56,8 @@ const envSchema = z.object({
   AAP_CLAUDE_EXECUTABLE: z.string().trim().min(1).optional(),
   AAP_CLAUDE_MODEL: z.string().trim().min(1).optional(),
   AAP_CLAUDE_MAX_BUDGET_USD: z.coerce.number().positive().max(100).optional(),
+  /** How long the offline fake agent pretends to work. Demos and end-to-end tests. */
+  AAP_FAKE_AGENT_DELAY_MS: z.coerce.number().int().min(0).max(600_000).default(1_500),
 });
 
 export interface AppConfig {
@@ -77,6 +79,7 @@ export interface AppConfig {
     executable: string | undefined;
     model: string | undefined;
     maxBudgetUsd: number | undefined;
+    fakeDelayMs: number;
   };
 }
 
@@ -106,6 +109,7 @@ export function loadConfig(
       executable: parsed.AAP_CLAUDE_EXECUTABLE,
       model: parsed.AAP_CLAUDE_MODEL,
       maxBudgetUsd: parsed.AAP_CLAUDE_MAX_BUDGET_USD,
+      fakeDelayMs: parsed.AAP_FAKE_AGENT_DELAY_MS,
     },
   };
 }
