@@ -1,0 +1,33 @@
+{
+  "name": "ai-automation-platform",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.24.0",
+  "engines": {
+    "node": ">=24.11.0"
+  },
+  "scripts": {
+    "build:shared": "pnpm --filter @aap/shared build",
+    "dev": "pnpm build:shared && pnpm --parallel --filter @aap/backend --filter @aap/desktop dev",
+    "dev:desktop": "pnpm --filter @aap/desktop tauri dev",
+    "build": "pnpm --recursive build",
+    "build:desktop": "pnpm --filter @aap/desktop tauri build",
+    "typecheck": "pnpm build:shared && pnpm --recursive typecheck",
+    "lint": "pnpm build:shared && eslint .",
+    "test": "pnpm build:shared && pnpm --recursive test",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.0",
+    "@next/eslint-plugin-next": "catalog:",
+    "@types/node": "catalog:",
+    "eslint": "^10.0.0",
+    "eslint-plugin-react-hooks": "^7.1.0",
+    "prettier": "^3.9.0",
+    "typescript": "catalog:",
+    "typescript-eslint": "^8.70.0"
+  }
+}

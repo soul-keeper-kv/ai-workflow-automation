@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Core permissions for the main window only. Add plugin permissions here explicitly, one by one.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

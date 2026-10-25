@@ -1,0 +1,9 @@
+pnpm-lock.yaml
+dist/
+out/
+.next/
+next-env.d.ts
+coverage/
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/
+apps/desktop/src-tauri/icons/

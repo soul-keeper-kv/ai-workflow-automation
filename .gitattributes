@@ -1,0 +1,7 @@
+# Keep LF in the repository and working tree on every OS, so Prettier checks
+# do not fail on Windows machines with core.autocrlf=true.
+* text=auto eol=lf
+
+*.png binary
+*.ico binary
+*.icns binary
