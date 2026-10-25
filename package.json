@@ -9,7 +9,7 @@
   },
   "scripts": {
     "build:packages": "pnpm --filter \"./packages/**\" build",
-    "dev": "pnpm build:packages && pnpm --parallel --filter @aap/backend --filter @aap/desktop dev",
+    "dev": "pnpm build:packages && node scripts/dev.mjs",
     "dev:desktop": "pnpm --filter @aap/desktop tauri dev",
     "build": "pnpm --recursive build",
     "build:desktop": "pnpm --filter @aap/desktop tauri build",

@@ -37,6 +37,10 @@ const envSchema = z.object({
     .default('info'),
   AAP_LOG_FORMAT: z.enum(['json', 'pretty']).default('json'),
   AAP_DATA_DIR: z.string().trim().min(1).optional(),
+  /** Shared secret for /api/*. `pnpm dev` generates one per run; the desktop app will too. */
+  AAP_API_TOKEN: z
+    .string({ error: 'is required (at least 32 characters); `pnpm dev` sets it for you' })
+    .min(32, 'must be at least 32 characters'),
 });
 
 export interface AppConfig {
@@ -49,6 +53,8 @@ export interface AppConfig {
   logFormat: z.infer<typeof envSchema>['AAP_LOG_FORMAT'];
   /** Absolute directory for the SQLite database. Never inside the source repository. */
   dataDir: string;
+  /** Bearer token every /api/* request must present. Never logged. */
+  apiToken: string;
 }
 
 export class ConfigError extends Error {
@@ -70,5 +76,6 @@ export function loadConfig(
     logLevel: parsed.AAP_LOG_LEVEL,
     logFormat: parsed.AAP_LOG_FORMAT,
     dataDir: resolve(parsed.AAP_DATA_DIR ?? defaultDataDir()),
+    apiToken: parsed.AAP_API_TOKEN,
   };
 }

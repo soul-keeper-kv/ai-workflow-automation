@@ -25,7 +25,7 @@ describe('data directory', () => {
   });
 
   it('uses AAP_DATA_DIR when set, as an absolute path', () => {
-    const config = loadConfig({ AAP_DATA_DIR: 'relative/data' });
+    const config = loadConfig({ AAP_DATA_DIR: 'relative/data', AAP_API_TOKEN: 't'.repeat(32) });
 
     expect(config.dataDir).toMatch(/relative[\\/]data$/);
     expect(config.dataDir).not.toBe('relative/data');

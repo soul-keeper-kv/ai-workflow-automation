@@ -8,7 +8,10 @@ import {
 } from 'fastify-type-provider-zod';
 import { healthRoutes } from './api/health.js';
 import type { AppConfig } from './config/env.js';
+import { executionRoutes } from './modules/executions/execution-routes.js';
+import { workflowRoutes } from './modules/workflows/workflow-routes.js';
 import { registerErrorHandling } from './plugins/error-handler.js';
+import { registerSecurity } from './plugins/security.js';
 import { APP_VERSION } from './version.js';
 import { REGISTERED_WORKFLOWS } from './workers/registered-workflows.js';
 import { createWorkflowRuntime } from './workers/workflow-runtime.js';
@@ -41,6 +44,8 @@ export async function buildApp(config: AppConfig, options: BuildAppOptions = {})
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
   registerErrorHandling(app);
+  // Before CORS, so a rejected request never gets as far as a CORS answer.
+  registerSecurity(app, config);
 
   const runtime = createWorkflowRuntime({
     dataDir: config.dataDir,
@@ -73,9 +78,12 @@ export async function buildApp(config: AppConfig, options: BuildAppOptions = {})
   await app.register(cors, {
     origin: [...config.allowedOrigins],
     methods: ['GET', 'POST'],
+    allowedHeaders: ['Authorization', 'Content-Type', 'Accept'],
   });
 
   await app.register(healthRoutes, { version: APP_VERSION });
+  await app.register(workflowRoutes, { runtime });
+  await app.register(executionRoutes, { runtime });
 
   return app;
 }

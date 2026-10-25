@@ -2,7 +2,7 @@ import { apiErrorResponseSchema, healthResponseSchema } from '@aap/shared';
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp, type App } from '../src/app.js';
 import { APP_VERSION } from '../src/version.js';
-import { testConfig } from './helpers.js';
+import { AUTH, testConfig } from './helpers.js';
 
 const config = testConfig();
 
@@ -31,7 +31,7 @@ describe('GET /health', () => {
 
 describe('error envelope', () => {
   it('returns NOT_FOUND for unknown routes', async () => {
-    const response = await app.inject({ method: 'GET', url: '/does-not-exist' });
+    const response = await app.inject({ method: 'GET', url: '/does-not-exist', headers: AUTH });
 
     expect(response.statusCode).toBe(404);
     expect(apiErrorResponseSchema.parse(response.json()).error.code).toBe('NOT_FOUND');
@@ -42,7 +42,7 @@ describe('error envelope', () => {
       throw new Error('secret internal detail');
     });
 
-    const response = await app.inject({ method: 'GET', url: '/boom' });
+    const response = await app.inject({ method: 'GET', url: '/boom', headers: AUTH });
 
     expect(response.statusCode).toBe(500);
     const body = apiErrorResponseSchema.parse(response.json());
