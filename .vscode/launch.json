@@ -1,0 +1,63 @@
+{
+  // Run and debug the demo from VS Code (Run and Debug panel, or F5).
+  // "Demo: full stack" runs `pnpm dev`: backend on http://127.0.0.1:41731, UI on
+  // http://localhost:3000, with a fresh API token per run. Breakpoints work in the backend
+  // (apps/backend/src, packages/*/src) and in Next.js server code.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Demo: full stack (backend + UI)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "pnpm dev",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Demo: open UI in Edge",
+      "type": "msedge",
+      "request": "launch",
+      "url": "http://localhost:3000",
+      "webRoot": "${workspaceFolder}/apps/desktop",
+      "presentation": { "group": "browser" }
+    },
+    {
+      "name": "Demo: open UI in Chrome",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://localhost:3000",
+      "webRoot": "${workspaceFolder}/apps/desktop",
+      "presentation": { "group": "browser" }
+    },
+    {
+      "name": "Desktop window (Tauri, needs Rust)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "pnpm dev:desktop",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Tests: debug current test file",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "pnpm build:packages && pnpm exec vitest run \"${relativeFile}\"",
+      "cwd": "${workspaceFolder}",
+      "presentation": { "group": "tests" }
+    },
+    {
+      "name": "Tests: all",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "pnpm test",
+      "cwd": "${workspaceFolder}",
+      "presentation": { "group": "tests" }
+    }
+  ],
+  "compounds": [
+    {
+      // The browser may open before the UI is ready; reload it once `pnpm dev` prints "Ready".
+      "name": "Demo: full stack + Edge",
+      "configurations": ["Demo: full stack (backend + UI)", "Demo: open UI in Edge"],
+      "stopAll": true
+    }
+  ]
+}

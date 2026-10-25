@@ -37,8 +37,8 @@ export default defineConfig(
   },
 
   {
-    // Plain JS config files are not part of any tsconfig.
-    files: ['**/*.{js,mjs,cjs}'],
+    // Plain JS files and root-level config files are not part of any tsconfig.
+    files: ['**/*.{js,mjs,cjs}', '*.config.ts'],
     extends: [tseslint.configs.disableTypeChecked],
   },
 
